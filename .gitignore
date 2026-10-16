@@ -1,0 +1,12 @@
+dgcortes.sqlite3
+.secret_key
+__pycache__/
+*.pyc
+.env
+data/
+*.sqlite3-shm
+*.sqlite3-wal
+*.log
+backup*.zip
+backups/
+.DS_Store
