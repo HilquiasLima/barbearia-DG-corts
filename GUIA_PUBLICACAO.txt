@@ -1,0 +1,113 @@
+DG CORTES — GUIA DE TESTES E PUBLICAÇÃO (KIT DE PREPARAÇÃO)
+==========================================================
+
+IMPORTANTE: este kit adapta armazenamento e hospedagem para um ambiente
+inicial de HOMOLOGAÇÃO na Render. NÃO É uma certificação de segurança
+nem significa que tudo já foi testado ou publicado.
+
+1) TESTAR NO WINDOWS, ANTES DE SUBIR
+----------------------------------
+A) Extraia o ZIP e abra a pasta DG_Cortes_Kit_Publicacao.
+B) Com Python 3.10+ instalado, execute INICIAR_DG_CORTES.bat.
+C) Abra http://127.0.0.1:5000. Crie a conta do proprietário.
+D) Em um TERMINAL dentro da pasta, rode: py testes_basicos.py
+   O script testa algumas regras em banco temporário isolado e NÃO
+   muda clientes reais. Se der erro, NÃO publique até corrigir.
+E) Teste manualmente: 5+1 barbeiros, autorização, agenda por perfil,
+   bloqueio, foto, cortesias, planos, cancelamentos e responsividade.
+F) Faça teste entre dois celulares reservando o mesmo horário ao
+   mesmo tempo; somente um deve ser confirmado.
+G) Crie um backup: py backup_dg.py
+   Não exponha o backup; ele contém dados pessoais.
+
+2) O QUE FOI AJUSTADO NESTE KIT
+-------------------------------
+- Banco: aceita DG_DB_PATH para o disco permanente da hospedagem.
+- Fotos e logo editável: aceitam DG_DATA_DIR e ficam no disco permanente.
+- Primeiro dono: exige SETUP_TOKEN na Render (mesmo antes do cadastro).
+- Produção: Gunicorn (requirements-prod.txt), sem servidor Flask debug.
+- HTTPS: COOKIE_SECURE=1. Headers básicos de segurança adicionados.
+- render.yaml: exemplo de implantação paga com disco persistente.
+- Testes rápidos automatizados e script de backup manual.
+
+3) PUBLISH: GITHUB -> RENDER (SUGERIDO PARA HOMOLOGAÇÃO)
+--------------------------------------------------------
+A) Crie uma conta GitHub (https://github.com) e um repositório PRIVADO,
+   ex.: dg-cortes. Faça upload DOS ARQUIVOS DE DENTRO da pasta do projeto,
+   não o ZIP fechado e não uma subpasta a mais.
+   Verifique que render.yaml, app.py, requirements-prod.txt estejam NA RAIZ.
+   Nunca envie .env, .secret_key, dgcortes.sqlite3, backups ou data/.
+B) Entre em https://dashboard.render.com ; autorize o GitHub.
+C) Escolha New > Blueprint. Aponte para o repositório dg-cortes.
+   O arquivo render.yaml preenche plano, Gunicorn, disco e variáveis.
+D) ATENÇÃO: o Blueprint usa 'starter' PAGO e disco 1 GB PAGO.
+   Avalie o preço atual no painel antes de aprovar qualquer cobrança.
+   Serviço grátis sem disco NÃO é apropriado a este SQLite com fotos.
+E) Quando solicitado, escolha SETUP_TOKEN (código secreto comprido,
+   diferente da senha) e armazene fora do GitHub.
+F) Aguarde Deploy Live; abra o link https://dg-cortes-web.onrender.com
+   (o nome exato poderá ser outro, conforme disponibilidade).
+G) A primeira tela pedirá dados do DONO, senha e CÓDIGO DE ATIVAÇÃO;
+   informe o SETUP_TOKEN que você configurou na Render.
+H) Use nomes e e-mails FICTÍCIOS no primeiro teste público.
+   Apenas quando aprovar tudo, decida se zerará dados de teste; apagar
+   o banco exigirá recriar o dono e poderá apagar cadastros reais.
+
+4) DOMÍNIO PRÓPRIO E HTTPS
+-------------------------
+A) Registre o domínio desejado em um registrador confiável.
+B) Render > seu serviço > Settings > Custom Domains > Add Custom Domain.
+C) Copie os REGISTROS DNS que o painel apresentar para o seu registrador.
+   Não chute valores de IP ou CNAME: o painel informa os corretos.
+D) Clique Verify. A Render emite e renova HTTPS automaticamente.
+E) Teste www, sem www, HTTPS, acesso de celular, login e reservas.
+
+5) CONFIRMAÇÃO POR E-MAIL E WHATSAPP
+------------------------------------
+E-MAIL: Render > serviço > Environment. Configure SMTP_HOST, SMTP_PORT,
+SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_TLS com conta SMTP autorizada.
+Teste agendamento, cancelamento e conclusão e cheque 'notificações'.
+
+WHATSAPP: é necessária integração com a Meta WhatsApp Business Platform,
+número habilitado, token WA_ACCESS_TOKEN, WA_PHONE_ID e modelos aprovados:
+WA_TEMPLATE_BOOKED, WA_TEMPLATE_CANCELLED, WA_TEMPLATE_COMPLETED.
+Modelo deve aceitar 4 variáveis, na ordem: cliente, barbeiro, data, hora.
+Considere regras da Meta sobre mensagens iniciadas pela empresa e a
+necessidade de consentimento para comunicações; não basta informar celular.
+
+NÃO divulgue ao público afirmando 'WhatsApp automático' até provar os envios.
+
+6) PENDÊNCIAS CRÍTICAS PARA USO COM CLIENTES REAIS
+--------------------------------------------------
+[ ] Teste completo do backend com bibliotecas instaladas (não validado aqui).
+[ ] Rate limiting/anti-bot no login, inscrição e agendamento de visitantes.
+[ ] Recuperação de senha por e-mail validada (não implementada na V1).
+[ ] Política de privacidade LGPD e transparência sobre tratamento de dados.
+[ ] Consentimento/adequação das mensagens e regras comerciais dos planos.
+[ ] Backup OFFSITE automatizado e TESTE DE RESTAURAÇÃO. Backup em um só
+    disco não basta. A Render tem snapshots de disco, mas não substituem
+    cópias independentes e testadas.
+[ ] Regras de remarcação, falta e no-show.
+[ ] Revisão de segurança, acesso por função, observabilidade e logs.
+[ ] Teste de simultaneidade e comportamento em queda de rede.
+[ ] Definir suporte e pessoa que acompanhará as atualizações do sistema.
+
+7) CUIDADOS COM DADOS EXISTENTES
+-------------------------------
+O BANCO DO SEU PC não vai sozinho para a Render. Ao publicar num disco
+novo, o sistema inicia vazio e pede o cadastro de novo proprietário.
+NÃO copie o banco com dados de teste por engano.
+A versão atual usa SQLite e uma única instância. Para crescer, uma
+migração para PostgreSQL, armazenamento separado de fotos e filas de
+notificações pode ser necessária e exige desenvolvimento adicional.
+
+DOCUMENTAÇÃO OFICIAL
+--------------------
+https://render.com/docs/deploy-flask
+https://render.com/docs/blueprint-spec
+https://render.com/docs/disks
+https://render.com/docs/custom-domains
+https://render.com/docs/configure-environment-variables
+
+Em caso de dúvida, NÃO compartilhe segredos, senhas, tokens nem arquivos
+com dados de clientes na conversa.

@@ -1,0 +1,154 @@
+DG CORTES — APP WEB DE AGENDAMENTOS | PRIMEIRA VERSÃO
+=======================================================
+
+O QUE É
+Um site responsivo com páginas dedicadas para clientes, visitantes,
+barbeiros e administração. A interface foi criada com HTML, CSS e
+JavaScript. O servidor em Python/Flask gerencia contas, horários e
+agendamentos em um banco de dados SQLite.
+
+ATENÇÃO: não abra apenas o HTML com dois cliques. Para login, reservas
+e administração funcionarem, é preciso iniciar o servidor abaixo.
+
+COMEÇAR NO WINDOWS (VS CODE / POWERSHELL)
+------------------------------------------
+MODO SIMPLES: depois de instalar o Python, dê dois cliques em
+INICIAR_DG_CORTES.bat. Ele instala as dependências necessárias (na
+primeira vez, com internet), inicia o servidor e abre seu navegador.
+
+MODO MANUAL:
+1. Instale Python 3.10 ou superior (marque “Add Python to PATH”).
+2. Extraia o arquivo ZIP inteiro; NÃO separe as pastas.
+3. Abra a pasta DG_Cortes_WebApp no VS Code.
+4. Abra Terminal > Novo terminal e execute:
+
+   py -m pip install -r requirements.txt
+   py app.py
+
+5. Abra no navegador: http://127.0.0.1:5000
+6. Cadastre o DONO na primeira tela: nome, telefone, Instagram, e-mail
+   e senha forte (mínimo 8 caracteres). O dono vira administrador
+   principal e primeiro barbeiro. NÃO existe senha inicial padrão.
+
+PARA PARAR: pressione Ctrl+C no terminal.
+O endereço 127.0.0.1 funciona apenas no computador onde o servidor roda.
+Ainda NÃO é um link público para clientes de outros aparelhos.
+
+VISÃO DO CLIENTE
+----------------
+- Página inicial com a logo original, preços, promoções e planos ativos.
+- Menu retrátil ☰ no canto superior direito, com Agendamento, Login,
+  Novo cadastro e solicitação de cadastro para barbeiros.
+- Clientes convidados informam nome e sobrenome, WhatsApp e e-mail.
+- Clientes logados usam os dados do próprio cadastro.
+- Escolhem serviço, barbeiro, data e horário livre.
+- Depois de confirmar, abrem um comprovante próprio com barbeiro,
+  serviço, dia, horário, valor e protocolo.
+- O servidor verifica conflitos: não é possível reservar a mesma faixa
+  de horário duas vezes para o mesmo profissional.
+
+BARBEIROS
+---------
+- Até cinco barbeiros ATIVOS além do proprietário.
+- O administrador pode criar um cadastro com nome, telefone, Instagram,
+  e-mail e senha, ou aprovar o pedido feito pelo próprio barbeiro.
+- Cada barbeiro vê apenas os seus atendimentos; pode cancelar,
+  concluir, editar horário semanal e ajustar encaixes/bloqueios.
+- O dono/administradores conseguem gerenciar todos os profissionais.
+
+ADMINISTRAÇÃO
+-------------
+- Painel de atendimentos e clientes; histórico e planos solicitados.
+- Criar/editar/ocultar categorias e serviços, preços e duração.
+- Criar/editar/ocultar planos de N dias e N cortes. Cobrança e ativação
+  MANUAIS — o site não cobra cartão/Pix ainda.
+- Criar ofertas e cupons e escolher se a promoção aparece no site.
+- Conceder/remover créditos de cortesia e definir prêmio automático:
+  1 cortesia após cada N cortes CONCLUÍDOS de cliente cadastrado.
+- Desativar/reactivar clientes e barbeiros (mantendo histórico).
+- Promover usuário a administrador, ou rebaixá-lo novamente. Nenhum
+  outro administrador pode desativar/rebaixar a conta do dono.
+- Personalizar nome, cores e logo em “Personalizar”.
+- Controlar a VISIBILIDADE das seções: serviços, barbeiros, planos,
+  promoções, agendamento e recompensas para visitantes, clientes ou
+  barbeiros. Administradores sempre têm acesso completo. Os campos
+  de cada serviço/plano também possuem visibilidade individual.
+- Ver o histórico de tentativas de envio das notificações.
+
+NOTIFICAÇÕES: O QUE FUNCIONA E O QUE NÃO FUNCIONA
+------------------------------------------------
+A reserva fica confirmada no site mesmo sem integração externa.
+O aplicativo REGISTRA o que enviaria por e-mail/WhatsApp.
+
+Para enviar e-mails automaticamente, configure um SMTP autorizado.
+Para WhatsApp, configure a WhatsApp Business Platform / Cloud API
+com conta, número, token e templates aprovados pela Meta. Não basta
+informar o número do cliente: o envio proativo exige API oficial.
+
+1. Copie .env.exemplo para .env.
+2. Preencha credenciais SMTP e/ou WA_* conforme seu fornecedor.
+3. Reinicie o servidor; faça uma reserva de teste.
+4. Confira os registros de notificações em “Personalizar”.
+
+Templates WhatsApp devem ter quatro parâmetros de corpo na ordem:
+nome do cliente, nome do barbeiro, data e hora. Configure um template
+para cada evento (booked / cancelled / completed). Os envios falhos
+são registrados e NÃO desmarcam a reserva. O e-mail vai para cliente,
+barbeiro e administradores ativos (quando configurado). O WhatsApp
+vai para cliente e barbeiro (quando configurado).
+
+ESTRUTURA
+---------
+app.py                  Servidor, regras e API
+requirements.txt        Dependências Python
+.env.exemplo            Modelo de integração sem dados secretos
+templates/index.html    Interface web
+static/style.css        Design responsivo
+static/app.js           Telas e ações
+static/logo.jpg         Sua logo original
+INICIAR_DG_CORTES.bat   Atalho Windows para executar o sistema
+data/avatars/           Fotos de perfil (criada ao enviar a primeira foto)
+
+FOTOS DE PERFIL (CLIENTE / BARBEIRO / ADMIN)
+-------------------------------------------
+- Todo usuário logado pode escolher, trocar e remover sua própria foto
+  em "Minha conta"; o administrador também pode editar fotos da equipe
+  e dos demais clientes em Equipe / Clientes.
+- A foto dos barbeiros ativos aparece na vitrine de profissionais, na
+  área de agendamento e na gestão da equipe. A foto do cliente não
+  aparece no site público.
+- Formatos aceitos: JPEG (JPG), PNG e WEBP, até 10 MB por imagem.
+- Recomendado: proporção 1:1 (quadrada), a partir de 1200 x 1200 pixels.
+- O servidor preserva a proporção, corrige rotação EXIF e otimiza
+  automaticamente em WEBP qualidade 90, com limite de 1600 pixels
+  no maior lado. O formato circular é só uma moldura na tela.
+- Imagens ficam em data/avatars (não na pasta pública static).
+  Em produção, inclua essa pasta em seus backups privados.
+- Não existe edição com recorte manual ou fotos para visitantes.
+
+Os arquivos dgcortes.sqlite3 e .secret_key serão criados
+automaticamente ao executar. NUNCA exponha esses arquivos na web.
+
+LIMITAÇÕES ATUAIS / ANTES DE PUBLICAR
+-------------------------------------
+Esta é uma primeira versão funcional para HOMOLOGAÇÃO, não uma
+aplicação auditada para produção. Antes de publicar um link real:
+- Registrar domínio, escolher hospedagem para Flask e configurar HTTPS.
+- Colocar PostgreSQL para uso online maior, backups e recuperação.
+- Fazer testes de segurança, privacidade/LGPD e proteção anti-spam,
+  especialmente no agendamento sem cadastro e no cadastro de equipe.
+- Configurar e testar a entrega de mensagens/recuperação de senhas.
+- Definir regras de cancelamento, faltas, pagamento e retenção de dados.
+- Não expor instalação inicial sem criar o dono previamente.
+- A exclusão de clientes nesta versão é desativação, para preservar
+  histórico. Exclusão definitiva/anônima e política LGPD são melhorias.
+- O controle de visibilidade cobre SEÇÕES e itens configuráveis;
+  edição fina de cada botão/campo é uma ampliação futura.
+- Não há cobrança online, WhatsApp, e-mail ou Pix habilitados por padrão.
+- Há fotos de perfil individuais com controle de acesso; relatórios financeiros avançados ainda não foram implementados.
+
+PRÓXIMA ETAPA SUGERIDA
+----------------------
+Primeiro testar todas as telas com o dono. Depois configurar as
+integrações (WhatsApp e SMTP), publicar num servidor de homologação,
+revisar LGPD e testar acesso por celular. Só então usar com clientes.

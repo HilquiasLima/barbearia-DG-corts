@@ -1,0 +1,29 @@
+# Blueprint Render (serviço pago: necessário disco persistente)
+services:
+  - type: web
+    name: dg-cortes-web
+    runtime: python
+    plan: starter
+    region: ohio
+    buildCommand: pip install -r requirements-prod.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 app:app
+    healthCheckPath: /
+    disk:
+      name: dg-cortes-dados
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SETUP_TOKEN
+        sync: false
+      - key: DG_DB_PATH
+        value: /var/data/dgcortes.sqlite3
+      - key: DG_DATA_DIR
+        value: /var/data
+      - key: COOKIE_SECURE
+        value: '1'
+      - key: FLASK_DEBUG
+        value: '0'
