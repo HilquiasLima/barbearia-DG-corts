@@ -1,0 +1,48 @@
+DG CORTES — ATUALIZAÇÃO DE SEGURANÇA (SOMENTE BRANCH teste)
+
+Arquivos alterados/adicionados: app.py, backup_lib.py, backup_dg.py, static/app.js, static/style.css.
+Recomenda-se NÃO reenviar nem substituir a pasta de fotos, o banco do SQLite, .secret_key, o arquivo .env e outras mídias.
+O pacote NÃO modifica logo, editor de textos, permissões da equipe ou planos de cortesia.
+
+1) GitHub: entre em https://github.com/down8609/DG-corts/tree/teste .
+2) Confirme branch teste. Envie app.py, backup_lib.py, backup_dg.py e a pasta static, nos mesmos caminhos.
+3) Commit changes. Verifique status Live na Render do serviço de testes e abra no navegador.
+4) Em Render > Environment, mantenha segredo SECRET_KEY próprio e COOKIE_SECURE=1. Não copie senhas da produção.
+5) Os limites de abuso e o honeypot funcionam imediatamente. Verificação por e-mail começa DESATIVADA (EMAIL_VERIFICATION_REQUIRED=0, valor padrão): assim novos cadastros de teste não são bloqueados sem SMTP.
+6) Para ATIVAR a verificação e-mail depois de contratar/configurar envio:
+   EMAIL_VERIFICATION_REQUIRED=1
+   PUBLIC_BASE_URL=https://ENDERECO-DO-SEU-SITE.onrender.com  (SEM barra final)
+   SMTP_HOST=servidor SMTP
+   SMTP_PORT=587
+   SMTP_FROM=contato@dominio-verificado
+   SMTP_TLS=1
+   SMTP_USER=usuario do provedor
+   SMTP_PASSWORD=credencial do provedor (privado; Render > Environment)
+   Faça um cadastro fictício novo, receba a mensagem, abra o link e teste a entrada.
+   Clientes anteriores são mantidos como verificados automaticamente durante a migração, para não bloquear clientes existentes.
+   Se SMTP_HOST/SMTP_FROM/PUBLIC_BASE_URL estiverem ausentes e EMAIL_VERIFICATION_REQUIRED=1, novos cadastros ficam temporariamente bloqueados (não há falso e-mail de confirmação).
+7) Backup: o proprietário entra em Clientes > Baixar backup seguro. O ZIP inclui um SQLite consistente e fotos; guarde fora do servidor, em local privado.
+   Backup NÃO é automático; configure frequência e destino externo antes de lançar a versão principal.
+8) Conferir backup baixado no computador:
+   python backup_dg.py verify caminho/para/backup.zip
+   Restore EM UM BANCO DE TESTES, com servidor PARADO:
+   python backup_dg.py restore backup.zip --db caminho/teste.sqlite3 --data caminho/fotos-teste --confirm
+   Substituição de banco real requer --replace e é uma operação destrutiva. Tire outro backup antes.
+9) SQLite do plano gratuito é efêmero; o backup armazenado nele também pode desaparecer. Baixe e mantenha a cópia fora da Render.
+10) Esta versão usa rate-limits e honeypot. Para site aberto ao público, avalie futuramente CAPTCHA gerenciado (ex.: Turnstile), monitoramento e auditoria de permissões. Não publique a produção antes dos testes manuais completos.
+11) A base de dados da versão oficial NÃO deve ser copiada para a versão de testes; utilize cadastros fictícios.
+
+TESTES MANUAIS RECOMENDADOS
+[ ] Entrar com cliente e proprietário
+[ ] Pedir cadastro cliente e agendar como visitante
+[ ] Limite 8 tentativas erradas / 15min por e-mail
+[ ] Limite de 6 cadastros / hora por IP (teste sem compartilhar NAT)
+[ ] Agendamento duplicado rejeitado
+[ ] Adicionar cliente ao plano por cortesia e usar corte
+[ ] Cancelar reserva e devolver corte
+[ ] Proprietário baixa backup; outras contas recebem 403
+[ ] Verificar ZIP com backup_dg.py verify
+[ ] Restaurar backup em banco fictício, comparar cadastros e fotos
+[ ] Com SMTP habilitado, cadastro pede verificação e valida token de uso único com 1h de duração
+
+OBS: site sem e-mail configurado não envia confirmação, e a ativação da verificação do cliente depende da integração SMTP.

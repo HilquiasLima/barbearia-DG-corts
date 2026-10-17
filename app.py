@@ -1,12 +1,16 @@
 """DG Cortes — MVP funcional. Execute: pip install -r requirements.txt; python app.py"""
-from flask import Flask, request, jsonify, session, render_template, g, send_file
+from flask import Flask, request, jsonify, session, render_template, g, send_file, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
-import sqlite3, json, os, re, secrets, smtplib, urllib.request, urllib.error
+import sqlite3, json, os, re, secrets, smtplib, urllib.request, urllib.error, hashlib, hmac, time, tempfile, zipfile, shutil, io
 from email.message import EmailMessage
+from html import escape as html_escape
+from urllib.parse import urlparse
+from werkzeug.middleware.proxy_fix import ProxyFix
+from backup_lib import make_backup
 from PIL import Image, ImageOps, UnidentifiedImageError
 from dotenv import load_dotenv
 
@@ -27,6 +31,10 @@ else:
 app = Flask(__name__)
 app.config.update(SECRET_KEY=SECRET, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=os.getenv('COOKIE_SECURE') == '1', MAX_CONTENT_LENGTH=12*1024*1024)
 TZ = ZoneInfo('America/Bahia')
+if os.getenv('RENDER'):
+    # Somente a primeira camada de proxy do provedor é confiável.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
 SITE_TEXT_DEFAULTS = {'hero_eyebrow': 'BARBEARIA • CUIDADO EM CADA DETALHE', 'hero_line1': 'Seu estilo.', 'hero_line2': 'Sua marca.', 'hero_line3': 'DG Cortes.', 'hero_description': 'A experiência de barbearia que combina tradição, personalidade e horário reservado especialmente para você.', 'hero_book_btn': 'Agendar meu horário', 'hero_services_btn': 'Explorar serviços', 'hero_feature1': 'Agendamento online', 'hero_feature2': 'Profissionais à sua escolha', 'hero_feature3': 'Clube de vantagens', 'services_eyebrow': 'O que fazemos', 'services_title': 'Nossos serviços', 'services_description': 'Preços e duração definidos pela barbearia.', 'services_book_btn': 'Agendar', 'services_empty': 'Em breve: serviços e preços.', 'staff_eyebrow': 'Nossa equipe', 'staff_title': 'Escolha seu barbeiro', 'staff_description': 'Profissionais e horários disponíveis em tempo real dentro do sistema.', 'staff_fallback': 'Profissional DG', 'staff_book_btn': 'Reservar horário', 'plans_eyebrow': 'Vantagens de ser cliente', 'plans_title': 'Planos de fidelidade', 'plans_description': 'Solicitação e ativação sujeitas à confirmação da barbearia. Pagamento feito fora do site.', 'plans_request_btn': 'Solicitar plano', 'plans_empty': 'Novos planos em breve.', 'promos_eyebrow': 'OFERTAS ESPECIAIS', 'promos_book_btn': 'Quero aproveitar', 'booking_title': 'Agende seu corte', 'booking_description': 'Escolha um serviço, um profissional e o melhor horário para você.', 'booking_step_service': 'ESCOLHA O SERVIÇO', 'booking_step_barber': 'ESCOLHA O PROFISSIONAL', 'booking_step_date': 'ESCOLHA O DIA', 'booking_step_slot': 'ESCOLHA UM HORÁRIO', 'booking_slots_note': 'Horários exibidos respeitam a duração do serviço, bloqueios e agendamentos existentes.', 'booking_summary_eyebrow': 'RESUMO DO AGENDAMENTO', 'booking_summary_title': 'Está quase pronto.', 'booking_no_slots': 'Sem vagas nesta data. Escolha outro dia ou barbeiro.', 'booking_choose_slot': 'Selecione ao lado', 'booking_confirm_btn': 'Confirmar horário', 'booking_payment_note': 'Não há pagamento online nesta versão. A barbearia confirma valores e cobranças diretamente.', 'auth_eyebrow': 'ÁREA EXCLUSIVA DG CORTES', 'login_title': 'Bem-vindo de volta.', 'login_description': 'Entre como cliente, barbeiro ou administrador usando sua conta.', 'login_panel_title': 'Entrar no sistema', 'register_title': 'Faça parte do clube.', 'register_description': 'Tenha um perfil, solicite planos especiais e acompanhe seus horários.', 'register_panel_title': 'Criar meu perfil', 'auth_guest_btn': 'Agendar como visitante, sem cadastro', 'confirmation_eyebrow': 'AGENDAMENTO REALIZADO', 'confirmation_title': 'Horário confirmado!', 'confirmation_description': 'Seu atendimento foi reservado com sucesso. Guarde seu comprovante.', 'confirmation_notifications_note': 'WhatsApp e e-mail automáticos só serão enviados depois que a barbearia configurar os serviços de mensagens. O comprovante na tela já confirma a reserva.', 'confirmation_home_btn': 'Voltar ao início', 'confirmation_new_btn': 'Agendar outro', 'brand_subtitle': 'BARBEARIA', 'footer_slogan': 'Estilo e tradição', 'footer_note': 'Horários e valores são configurados pela barbearia.'}
 
 DEFAULT_WEEK = {str(i): {'start':'09:00','end':'18:00'} for i in range(6)} | {'6': None}
@@ -70,6 +78,11 @@ def init_db():
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, appointment_id INTEGER REFERENCES appointments(id), event TEXT NOT NULL, channel TEXT NOT NULL, recipient TEXT NOT NULL, status TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS barber_applications(id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT NOT NULL, instagram TEXT NOT NULL DEFAULT '', password TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS throttle_events (event_id INTEGER PRIMARY KEY, bucket TEXT NOT NULL, at_seconds INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS throttle_lookup ON throttle_events(bucket,at_seconds);
+        CREATE INDEX IF NOT EXISTS throttle_cleanup ON throttle_events(at_seconds);
+        CREATE TABLE IF NOT EXISTS email_verifications (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, token_digest TEXT NOT NULL, valid_until INTEGER NOT NULL, sent_at INTEGER NOT NULL);
+
         ''')
         cols={r[1] for r in db.execute('PRAGMA table_info(appointments)')}
         if 'customer_email' not in cols: db.execute("ALTER TABLE appointments ADD COLUMN customer_email TEXT NOT NULL DEFAULT ''")
@@ -82,6 +95,8 @@ def init_db():
         ucols={r[1] for r in db.execute('PRAGMA table_info(users)')}
         if 'blocked_reason' not in ucols: db.execute("ALTER TABLE users ADD COLUMN blocked_reason TEXT NOT NULL DEFAULT ''")
         if 'avatar_version' not in ucols: db.execute("ALTER TABLE users ADD COLUMN avatar_version TEXT NOT NULL DEFAULT ''")
+        # Compatibilidade: clientes existentes não são bloqueados pela migração.
+        if 'email_verified' not in ucols: db.execute('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1')
         defaults={'site_name':'DG Cortes','logo_url':'/static/logo.jpg','background':'#0c0e11','accent':'#e3bb7b','reward_every':'0','site_text':json.dumps(SITE_TEXT_DEFAULTS,ensure_ascii=False),'visibility':json.dumps({key:['guest','client','barber','admin','owner'] for key in ('services','team','plans','promotions','booking','rewards')})}
         for key,value in defaults.items():db.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',(key,value))
 
@@ -217,6 +232,148 @@ def cancel_future_for_barber(barber_id):
         get_db().execute("UPDATE appointments SET status='cancelled' WHERE id=?",(a['id'],))
         recover_credit(a)
 
+
+# Limites persistentes no SQLite. Resistentes a múltiplos workers e reinícios.
+def guard_bucket(kind, identifier, limit, seconds):
+    key = hmac.new(SECRET.encode('utf-8'), (kind + ':' + identifier).encode('utf-8'), hashlib.sha256).hexdigest()
+    current = int(time.time())
+    db = get_db()
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        db.execute('DELETE FROM throttle_events WHERE at_seconds < ?', (current - 172800,))
+        matches = one('SELECT COUNT(*) AS n, MIN(at_seconds) AS oldest FROM throttle_events WHERE bucket=? AND at_seconds>?', (key, current-seconds))
+        if matches['n'] >= limit:
+            db.rollback()
+            wait = max(1, seconds - (current-matches['oldest']))
+            response = jsonify(error='Muitas tentativas. Aguarde alguns minutos e tente novamente.')
+            response.status_code = 429
+            response.headers['Retry-After'] = str(wait)
+            return response
+        db.execute('INSERT INTO throttle_events(bucket,at_seconds) VALUES(?,?)',(key,current))
+        db.commit()
+    except Exception:
+        if db.in_transaction: db.rollback()
+        raise
+    return None
+
+def bot_field_present(d):
+    return bool(str(d.get('website', '')).strip())
+
+def verify_email_required():
+    return os.getenv('EMAIL_VERIFICATION_REQUIRED', '0') == '1'
+
+def smtp_configured():
+    return bool(os.getenv('SMTP_HOST') and os.getenv('SMTP_FROM'))
+
+def public_base():
+    value = os.getenv('PUBLIC_BASE_URL', '').strip().rstrip('/')
+    parsed = urlparse(value)
+    if parsed.scheme != 'https' or not parsed.netloc or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+        raise RuntimeError('Defina PUBLIC_BASE_URL com o endereço HTTPS exato do site, sem barra final.')
+    return value
+
+def send_verification_email(user_id, address):
+    if not smtp_configured():
+        raise RuntimeError('Serviço de e-mail ainda não configurado.')
+    url = public_base()
+    token = secrets.token_urlsafe(36)
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    issued = int(time.time())
+    db = get_db()
+    db.execute('INSERT INTO email_verifications(user_id,token_digest,valid_until,sent_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_digest=excluded.token_digest,valid_until=excluded.valid_until,sent_at=excluded.sent_at',
+        (user_id,digest,issued+60*60,issued))
+    message=EmailMessage()
+    message['Subject']='Confirme seu e-mail | DG Cortes'
+    message['From']=os.environ['SMTP_FROM']
+    message['To']=address
+    message.set_content('Confirme seu e-mail em até 1 hora abrindo o endereço: ' + url + '/verificar-email?token=' + token + '\n\nSe não foi você quem se cadastrou, ignore esta mensagem.')
+    with smtplib.SMTP(os.environ['SMTP_HOST'],int(os.getenv('SMTP_PORT','587')),timeout=10) as smtp:
+        if os.getenv('SMTP_TLS','1')=='1':smtp.starttls()
+        if os.getenv('SMTP_USER'):smtp.login(os.environ['SMTP_USER'],os.getenv('SMTP_PASSWORD',''))
+        smtp.send_message(message)
+
+@app.get('/verificar-email')
+def verify_email():
+    token = request.args.get('token','')
+    message = 'Link inválido ou expirado. Solicite outro link de confirmação.'
+    if 20 <= len(token) <= 160:
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        db = get_db()
+        db.execute('BEGIN IMMEDIATE')
+        row = one('SELECT user_id FROM email_verifications WHERE token_digest=? AND valid_until>=?',(digest,int(time.time())))
+        if row:
+            db.execute('UPDATE users SET email_verified=1 WHERE id=?',(row['user_id'],))
+            db.execute('DELETE FROM email_verifications WHERE user_id=?',(row['user_id'],))
+            message = 'E-mail confirmado! Você já pode acessar sua conta.'
+        db.commit()
+    result = '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Verificação DG Cortes</title><body style="background:#101114;color:#f7f1e8;font:18px Arial;text-align:center;padding:12vh 20px"><h1>DG Cortes</h1><p>' + html_escape(message) + '</p><a style="color:#e3bb7b" href="/">Voltar ao site</a></body></html>'
+    response = Response(result,content_type='text/html; charset=utf-8')
+    response.headers['Cache-Control']='no-store'
+    response.headers['Referrer-Policy']='no-referrer'
+    return response
+
+@app.post('/api/resend-verification')
+def resend_verification():
+    d=body()
+    if bot_field_present(d):return err('Solicitação inválida.')
+    if not verify_email_required() or not smtp_configured():return err('Verificação de e-mail indisponível.',503)
+    email=str(d.get('email','')).strip().lower()
+    if not valid_email(email):return err('Informe um e-mail válido.')
+    user=one('SELECT id,email_verified FROM users WHERE email=?',(email,))
+    if user and not user['email_verified']:
+        try: send_verification_email(user['id'],email)
+        except Exception:app.logger.exception('Falha de envio de verificação de e-mail');return err('Serviço de e-mail indisponível. Tente mais tarde.',503)
+    return jsonify(ok=True,message='Se existir cadastro pendente, enviaremos um novo link de confirmação.')
+
+@app.get('/api/admin/backup')
+@auth(('owner',))
+def admin_download_backup():
+    # Conteúdo pessoal e sensível: somente proprietário autenticado.
+    directory=tempfile.mkdtemp(prefix='dg-backup-')
+    archive=Path(directory)/'backup-dg.zip'
+    try:
+        make_backup(DB, DATA_DIR, archive)
+        response=send_file(str(archive),as_attachment=True,download_name='backup-dg-cortes-'+now().strftime('%Y%m%d-%H%M%S')+'.zip',mimetype='application/zip')
+        response.headers['Cache-Control']='no-store, private'
+        response.headers['X-Robots-Tag']='noindex'
+        response.call_on_close(lambda: shutil.rmtree(directory,ignore_errors=True))
+        return response
+    except Exception:
+        shutil.rmtree(directory,ignore_errors=True)
+        raise
+
+@app.before_request
+def throttle_protected_routes():
+    if request.method!='POST':return None
+    path=request.path
+    profiles={
+      '/api/login':(40,900, 'auth-ip'),
+      '/api/register':(6,3600,'register-ip'),
+      '/api/book':(20,1800,'book-ip'),
+      '/api/setup':(10,3600,'setup-ip'),
+      '/api/apply-barber':(6,3600,'staff-ip'),
+      '/api/resend-verification':(6,3600,'verify-ip')
+    }
+    if path not in profiles:return None
+    ip=request.remote_addr or 'unknown'
+    cap,window,kind=profiles[path]
+    result=guard_bucket(kind,ip,cap,window)
+    if result is not None:return result
+    d=body()
+    if path=='/api/login':
+        email=str(d.get('email','')).strip().lower()
+        if email:return guard_bucket('auth-account',email,8,900)
+    if path=='/api/resend-verification':
+        email=str(d.get('email','')).strip().lower()
+        if email:return guard_bucket('verification-account',email,3,3600)
+    if path=='/api/book':
+        # Evita que uma única sessão ocupe toda a agenda.
+        sid=session.get('throttle_sid')
+        if not sid:
+            sid=secrets.token_urlsafe(18);session['throttle_sid']=sid
+        return guard_bucket('book-session',sid,8,1800)
+    return None
+
 @app.before_request
 def csrf_check():
     if request.method not in ('GET','HEAD','OPTIONS') and request.path.startswith('/api/'):
@@ -228,6 +385,8 @@ def security_headers(response):
     response.headers['X-Content-Type-Options']='nosniff'
     response.headers['Referrer-Policy']='strict-origin-when-cross-origin'
     response.headers['X-Frame-Options']='DENY'
+    response.headers['Permissions-Policy']='camera=(), microphone=(), geolocation=()'
+    response.headers['X-Permitted-Cross-Domain-Policies']='none'
     if os.getenv('COOKIE_SECURE')=='1':
         response.headers['Strict-Transport-Security']='max-age=31536000'
     return response
@@ -239,7 +398,7 @@ def index(): return render_template('index.html')
 def bootstrap():
     if 'csrf' not in session: session['csrf']=secrets.token_urlsafe(28)
     owner=one("SELECT id FROM users WHERE role='owner'")
-    return jsonify(installed=bool(owner),requires_setup_token=bool(os.getenv('SETUP_TOKEN') or os.getenv('RENDER')),csrf=session['csrf'], user=me())
+    return jsonify(installed=bool(owner),requires_setup_token=bool(os.getenv('SETUP_TOKEN') or os.getenv('RENDER')),csrf=session['csrf'], email_verification_required=verify_email_required(), user=me())
 
 @app.post('/api/setup')
 def setup():
@@ -251,6 +410,7 @@ def setup():
         return err('Código de ativação do proprietário incorreto.',403)
     try:
         require_fields(d,'name','phone','email','password')
+        if not valid_email(d['email']):return err('E-mail inválido.')
         if len(d['password'])<8: return err('A senha deve ter no mínimo 8 caracteres.')
         db=get_db(); db.execute('BEGIN IMMEDIATE')
         if one("SELECT id FROM users WHERE role='owner'"):
@@ -271,20 +431,36 @@ def setup():
 @app.post('/api/register')
 def register():
     d=body()
+    if bot_field_present(d):return err('Cadastro inválido.')
     try:
         if not one("SELECT id FROM users WHERE role='owner'"): return err('A barbearia ainda não foi configurada.')
         require_fields(d,'name','phone','email','password')
-        if len(d['password'])<8: return err('A senha deve ter no mínimo 8 caracteres.')
-        cur=get_db().execute('INSERT INTO users(name,phone,email,password,role,created_at) VALUES(?,?,?,?,?,?)',(d['name'].strip(),d['phone'].strip(),d['email'].strip().lower(),generate_password_hash(d['password']),'client',timestamp()))
+        if len(str(d['name']).split())<2:return err('Informe nome e sobrenome.')
+        if not valid_email(d['email']):return err('Informe um e-mail válido.')
+        if len(str(d['password']))<8:return err('A senha deve ter no mínimo 8 caracteres.')
+        if verify_email_required() and (not smtp_configured() or not os.getenv('PUBLIC_BASE_URL')):
+            return err('O cadastro está temporariamente indisponível. Contate a barbearia.',503)
+        clean_email=d['email'].strip().lower()
+        required=verify_email_required()
+        cur=get_db().execute('INSERT INTO users(name,phone,email,password,role,created_at,email_verified) VALUES(?,?,?,?,?,?,?)',
+            (d['name'].strip(),str(d['phone']).strip(),clean_email,generate_password_hash(d['password']),'client',timestamp(),0 if required else 1))
+        if required:
+            try:send_verification_email(cur.lastrowid,clean_email)
+            except Exception:
+                app.logger.exception('Erro no envio de e-mail de verificação')
+                return err('Cadastro criado, mas não foi possível enviar o e-mail. Use Reenviar confirmação para tentar novamente.',503)
+            return jsonify(ok=True,verification_required=True,message='Enviamos um link de confirmação para seu e-mail. Confirme antes de entrar.')
         session['uid']=cur.lastrowid
         return jsonify(ok=True)
-    except sqlite3.IntegrityError: return err('E-mail já cadastrado.')
-    except (ValueError,TypeError) as e: return err(str(e))
+    except sqlite3.IntegrityError:return err('E-mail já cadastrado.')
+    except (ValueError,TypeError) as e:return err(str(e))
 
 @app.post('/api/login')
 def login():
     d=body(); u=one('SELECT * FROM users WHERE email=?',(str(d.get('email','')).strip().lower(),))
     if not u or not u['active'] or not check_password_hash(u['password'],str(d.get('password',''))): return err('E-mail ou senha inválidos.',401)
+    if verify_email_required() and not u['email_verified']:
+        return err('Confirme seu e-mail antes de entrar. Use Reenviar confirmação se necessário.',403)
     session.clear();session['csrf']=secrets.token_urlsafe(28);session['uid']=u['id']
     return jsonify(ok=True,csrf=session['csrf'])
 
@@ -374,6 +550,7 @@ def slot_update():
 @app.post('/api/book')
 def book():
     d=body(); db=get_db()
+    if bot_field_present(d):return err('Agendamento inválido.')
     try:
         if not visible('booking'):return err('Agendamentos indisponíveis para seu perfil.',403)
         bid=int(d['barber_id']);sid=int(d['service_id']); day=d['day'];start=d['time'];validate_day(day);validate_time(start)
@@ -839,6 +1016,7 @@ def update_week(bid):
 @app.post('/api/apply-barber')
 def apply_barber():
     d=body()
+    if bot_field_present(d):return err('Solicitação inválida.')
     try:
         require_fields(d,'name','phone','email','password')
         email=str(d['email']).strip().lower()

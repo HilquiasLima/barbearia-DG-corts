@@ -1,27 +1,23 @@
-"""Backup manual local: py backup_dg.py [pasta_de_destino]
-Não é agendamento automático e não transfere dados para outro servidor.
-"""
-import os, sqlite3, sys, zipfile
+"""Ferramenta de backup/restauração local: python backup_dg.py backup|verify|restore"""
+import argparse
+import os
 from pathlib import Path
 from datetime import datetime
-BASE=Path(__file__).resolve().parent
-DB=Path(os.environ.get('DG_DB_PATH',str(BASE/'dgcortes.sqlite3')))
-DATA=Path(os.environ.get('DG_DATA_DIR',str(BASE/'data')))
-if not DB.is_file():
-    sys.exit('Não encontrei o banco de dados. Confira DG_DB_PATH ou inicie o aplicativo primeiro.')
-target=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else BASE/'backups'
-target.mkdir(parents=True,exist_ok=True)
-name=target/f'dg_cortes_backup_{datetime.now():%Y%m%d_%H%M%S}.zip'
-backup_db=target/'.dg_backup_temporario.sqlite3'
-try:
-    with sqlite3.connect(DB) as source, sqlite3.connect(backup_db) as output:
-        source.backup(output)
-    with zipfile.ZipFile(name,'w',compression=zipfile.ZIP_DEFLATED) as z:
-        z.write(backup_db,'dgcortes.sqlite3')
-        for path in DATA.rglob('*'):
-            if path.is_file() and ('avatars' in path.parts or 'branding' in path.parts):
-                z.write(path,'data/'+str(path.relative_to(DATA)))
-    print('Backup gerado em:',name)
-    print('IMPORTANTE: contém dados pessoais. Guarde em local privado e copie para fora do servidor.')
-finally:
-    backup_db.unlink(missing_ok=True)
+from backup_lib import make_backup, verify_backup, restore_backup
+
+ROOT=Path(__file__).resolve().parent
+parser=argparse.ArgumentParser(description='Backup DG Cortes (contém dados pessoais: guarde em local PRIVADO).')
+sub=parser.add_subparsers(dest='operation',required=True)
+back=sub.add_parser('backup'); back.add_argument('--out',default=str(ROOT/'backups'))
+check=sub.add_parser('verify');check.add_argument('zip')
+restore=sub.add_parser('restore');restore.add_argument('zip');restore.add_argument('--db',required=True);restore.add_argument('--data',required=True);restore.add_argument('--confirm',action='store_true');restore.add_argument('--replace',action='store_true')
+args=parser.parse_args()
+if args.operation=='backup':
+    db=Path(os.environ.get('DG_DB_PATH',str(ROOT/'dgcortes.sqlite3')))
+    data=Path(os.environ.get('DG_DATA_DIR',str(ROOT/'data')))
+    file=Path(args.out)/f'dg-backup-{datetime.now():%Y%m%d-%H%M%S}.zip'
+    print('Gerado:',make_backup(db,data,file));print('Verificação:',verify_backup(file))
+elif args.operation=='verify':print('Verificação OK:',verify_backup(Path(args.zip)))
+else:
+    if not args.confirm:parser.error('Desligue a aplicação primeiro e passe --confirm após conferir destinos.')
+    print('Restaurado:',restore_backup(Path(args.zip),Path(args.db),Path(args.data),replace=args.replace))

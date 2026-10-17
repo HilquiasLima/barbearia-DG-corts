@@ -80,3 +80,6 @@
 .brand-emblem{width:84px;height:62px;mix-blend-mode:screen;filter:drop-shadow(0 1px 2px #8c602633);}
 @media(max-width:740px){.brand-emblem{width:72px;height:54px}}
 @media(max-width:390px){.brand-emblem{width:62px;height:49px}}
+
+/* Campo anti-bot: não interfere em leitores de tela nem nos formulários */
+.spam-trap{position:absolute!important;left:-10000px!important;top:auto!important;width:1px!important;height:1px!important;overflow:hidden!important}
