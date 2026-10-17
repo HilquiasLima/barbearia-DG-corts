@@ -27,6 +27,8 @@ else:
 app = Flask(__name__)
 app.config.update(SECRET_KEY=SECRET, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=os.getenv('COOKIE_SECURE') == '1', MAX_CONTENT_LENGTH=12*1024*1024)
 TZ = ZoneInfo('America/Bahia')
+SITE_TEXT_DEFAULTS = {'hero_eyebrow': 'BARBEARIA • CUIDADO EM CADA DETALHE', 'hero_line1': 'Seu estilo.', 'hero_line2': 'Sua marca.', 'hero_line3': 'DG Cortes.', 'hero_description': 'A experiência de barbearia que combina tradição, personalidade e horário reservado especialmente para você.', 'hero_book_btn': 'Agendar meu horário', 'hero_services_btn': 'Explorar serviços', 'hero_feature1': 'Agendamento online', 'hero_feature2': 'Profissionais à sua escolha', 'hero_feature3': 'Clube de vantagens', 'services_eyebrow': 'O que fazemos', 'services_title': 'Nossos serviços', 'services_description': 'Preços e duração definidos pela barbearia.', 'services_book_btn': 'Agendar', 'services_empty': 'Em breve: serviços e preços.', 'staff_eyebrow': 'Nossa equipe', 'staff_title': 'Escolha seu barbeiro', 'staff_description': 'Profissionais e horários disponíveis em tempo real dentro do sistema.', 'staff_fallback': 'Profissional DG', 'staff_book_btn': 'Reservar horário', 'plans_eyebrow': 'Vantagens de ser cliente', 'plans_title': 'Planos de fidelidade', 'plans_description': 'Solicitação e ativação sujeitas à confirmação da barbearia. Pagamento feito fora do site.', 'plans_request_btn': 'Solicitar plano', 'plans_empty': 'Novos planos em breve.', 'promos_eyebrow': 'OFERTAS ESPECIAIS', 'promos_book_btn': 'Quero aproveitar', 'booking_title': 'Agende seu corte', 'booking_description': 'Escolha um serviço, um profissional e o melhor horário para você.', 'booking_step_service': 'ESCOLHA O SERVIÇO', 'booking_step_barber': 'ESCOLHA O PROFISSIONAL', 'booking_step_date': 'ESCOLHA O DIA', 'booking_step_slot': 'ESCOLHA UM HORÁRIO', 'booking_slots_note': 'Horários exibidos respeitam a duração do serviço, bloqueios e agendamentos existentes.', 'booking_summary_eyebrow': 'RESUMO DO AGENDAMENTO', 'booking_summary_title': 'Está quase pronto.', 'booking_no_slots': 'Sem vagas nesta data. Escolha outro dia ou barbeiro.', 'booking_choose_slot': 'Selecione ao lado', 'booking_confirm_btn': 'Confirmar horário', 'booking_payment_note': 'Não há pagamento online nesta versão. A barbearia confirma valores e cobranças diretamente.', 'auth_eyebrow': 'ÁREA EXCLUSIVA DG CORTES', 'login_title': 'Bem-vindo de volta.', 'login_description': 'Entre como cliente, barbeiro ou administrador usando sua conta.', 'login_panel_title': 'Entrar no sistema', 'register_title': 'Faça parte do clube.', 'register_description': 'Tenha um perfil, solicite planos especiais e acompanhe seus horários.', 'register_panel_title': 'Criar meu perfil', 'auth_guest_btn': 'Agendar como visitante, sem cadastro', 'confirmation_eyebrow': 'AGENDAMENTO REALIZADO', 'confirmation_title': 'Horário confirmado!', 'confirmation_description': 'Seu atendimento foi reservado com sucesso. Guarde seu comprovante.', 'confirmation_notifications_note': 'WhatsApp e e-mail automáticos só serão enviados depois que a barbearia configurar os serviços de mensagens. O comprovante na tela já confirma a reserva.', 'confirmation_home_btn': 'Voltar ao início', 'confirmation_new_btn': 'Agendar outro', 'brand_subtitle': 'BARBEARIA', 'footer_slogan': 'Estilo e tradição', 'footer_note': 'Horários e valores são configurados pela barbearia.'}
+
 DEFAULT_WEEK = {str(i): {'start':'09:00','end':'18:00'} for i in range(6)} | {'6': None}
 
 def now(): return datetime.now(TZ)
@@ -76,7 +78,7 @@ def init_db():
         ucols={r[1] for r in db.execute('PRAGMA table_info(users)')}
         if 'blocked_reason' not in ucols: db.execute("ALTER TABLE users ADD COLUMN blocked_reason TEXT NOT NULL DEFAULT ''")
         if 'avatar_version' not in ucols: db.execute("ALTER TABLE users ADD COLUMN avatar_version TEXT NOT NULL DEFAULT ''")
-        defaults={'site_name':'DG Cortes','logo_url':'/static/logo.jpg','background':'#0c0e11','accent':'#e3bb7b','reward_every':'0','visibility':json.dumps({key:['guest','client','barber','admin','owner'] for key in ('services','team','plans','promotions','booking','rewards')})}
+        defaults={'site_name':'DG Cortes','logo_url':'/static/logo.jpg','background':'#0c0e11','accent':'#e3bb7b','reward_every':'0','site_text':json.dumps(SITE_TEXT_DEFAULTS,ensure_ascii=False),'visibility':json.dumps({key:['guest','client','barber','admin','owner'] for key in ('services','team','plans','promotions','booking','rewards')})}
         for key,value in defaults.items():db.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',(key,value))
 
 def err(msg, code=400): return jsonify(error=msg),code
@@ -301,6 +303,8 @@ def state():
     barbers=add_avatar_urls(barbers,'user_id')
     cfg=settings()
     cfg['visibility']=json.loads(cfg.get('visibility','{}'))
+    try: cfg['site_text']={**SITE_TEXT_DEFAULTS,**json.loads(cfg.get('site_text') or '{}')}
+    except (TypeError,ValueError): cfg['site_text']=SITE_TEXT_DEFAULTS.copy()
     if not isadmin:
         if not visible('plans',role):plans=[]
         if not visible('promotions',role):promos=[]
@@ -633,6 +637,22 @@ def change_settings():
             every=int(d['reward_every'])
             if every<0 or every>100:return err('Quantidade deve ser de 0 até 100.')
             get_db().execute('UPDATE settings SET value=? WHERE key=?',(str(every),'reward_every'))
+        if 'site_text' in d:
+            edits=d['site_text']
+            if not isinstance(edits,dict) or any(key not in SITE_TEXT_DEFAULTS for key in edits):
+                return err('Campo de texto não permitido.')
+            clean={}
+            for key,value in edits.items():
+                if not isinstance(value,str): return err('Informe textos válidos.')
+                value=value.strip()
+                maximum=650 if ('description' in key or 'note' in key) else 140
+                if len(value)>maximum: return err(f'Texto muito longo: {key} (máximo {maximum} caracteres).')
+                # Texto puro: todo conteúdo é escapado pelo frontend antes de aparecer no HTML.
+                clean[key]=value
+            previous=json.loads(setting('site_text') or '{}')
+            merged={**SITE_TEXT_DEFAULTS,**previous,**clean}
+            get_db().execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                             ('site_text',json.dumps(merged,ensure_ascii=False)))
         if 'visibility' in d:
             vis=d['visibility']; keys=('services','team','plans','promotions','booking','rewards')
             if not isinstance(vis,dict) or any(k not in keys or not isinstance(v,list) or any(r not in ('guest','client','barber','admin','owner') for r in v) for k,v in vis.items()):return err('Permissões inválidas.')

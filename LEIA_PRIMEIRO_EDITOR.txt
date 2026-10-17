@@ -1,0 +1,36 @@
+DG CORTES - EDITOR DE TEXTOS | SOMENTE BRANCH teste
+
+Atualização de conteúdo para a aba Personalizar.
+
+MUDANÇAS
+- app.py: adiciona validação e salvamento dos textos no banco SQLite existente.
+- static/app.js: campos organizados por seções + prévia + restauração de padrões.
+- static/style.css: estilos do editor e da prévia.
+- templates/index.html: rodapé configurável.
+- static/dg-cabecalho.webp: imagem já utilizada no site teste (mantida).
+
+O BANCO DE DADOS NÃO ESTÁ INCLUÍDO. Não altere o banco, os usuários e as senhas.
+Todos os dados anteriores de agendamentos, serviços e clientes são preservados pela atualização.
+
+PUBLICAR NA BRANCH teste
+1. Na página GitHub /down8609/DG-corts/tree/teste, confira branch=teste.
+2. Faça upload SOMENTE de app.py, static/app.js, static/style.css e templates/index.html, mantendo as pastas corretas.
+3. Não envie o ZIP inteiro nem a pasta DG_Cortes_Personalizacao_Textos_TESTE para dentro do repositório.
+4. Se o GitHub não aceitar sobrescrever arquivo, use o editor (ícone do lápis) ou GitHub Desktop.
+5. Faça commit na branch teste.
+6. Na Render, confira que o serviço gratuito aponta para branch teste. Aguarde Live.
+7. Acesse o site teste > Painel > Personalizar > Editar os textos do site.
+8. Digite novos valores, veja a prévia e clique Publicar textos.
+9. Abra Página inicial e faça testes deslogado, no celular, no login e no agendamento.
+
+NÃO APLIQUE NO MAIN até conferir tudo. Backup obrigatório antes de uma eventual migração para a produção.
+
+LIMITES
+- O editor abrange textos FIXOS das páginas públicas: home, serviços, barbeiros,
+  planos, promoção, login/cadastro, agendamento, confirmação e rodapé.
+- Nomes de serviços, preços, barbeiros e planos continuam editados em seus próprios menus.
+- Mensagens internas do sistema (erros, permissões, avisos técnicos) NÃO são editáveis
+  para evitar modificar regras de negócio e mensagens de segurança.
+- A prévia mostra somente o destaque inicial, não todas as telas.
+- Textos são armazenados no banco da instância; a Render gratuita pode apagá-los em reinicializações.
+- Não use o ambiente gratuito para dados reais de clientes.
