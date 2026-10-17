@@ -1,0 +1,19 @@
+DG CORTES — ATUALIZAÇÃO PARA BRANCH TESTE APENAS
+
+Inclui:
+• Logo dourada selecionada pelo usuário no cabeçalho (não troca a logo grande da página inicial).
+• Botão Clientes → Conceder plano, exclusivo para ADM/Proprietário.
+• Plano concedido como cortesia, com data inicial hoje, validade e cortes iguais aos do plano existente.
+• Histórico de concessões, registro do responsável e visualização na conta do cliente.
+• Proteção contra atribuir outro plano se já existir um ativo ou solicitação pendente.
+
+COMO ATUALIZAR:
+1. GitHub: selecione a branch TESTE, nunca principal/main.
+2. Envie app.py, static/app.js, static/style.css, static/dg-cabecalho.webp.
+3. Ao confirmar substituição, faça Commit changes e aguarde Live na Render de TESTES.
+4. Teste com dados fictícios e confira nos painéis Clientes, Planos e Minha conta.
+5. NÃO envie banco de dados ou arquivos .env/chave secreta.
+
+ATENÇÃO: se ainda não aplicou a versão Editor de Textos, esta atualização incorpora as alterações do editor.
+A versão Free da Render não garante persistência de SQLite. NÃO use dados reais neste ambiente.
+Não altera o site oficial automaticamente. O backend completo ainda requer testes em servidor Flask.

@@ -44,3 +44,42 @@
 .photo-admin-preview{display:flex;justify-content:center;padding:12px 0 21px}
 .photo-upload-form input[type=file],#photo-form input[type=file]{max-width:100%;cursor:pointer}
 @media(max-width:740px){.avatar.avatar-preview{width:105px;height:105px;flex-basis:105px}.photo-upload-preview{align-items:start}}
+
+/* DG Cortes - logomarca do cabeçalho (versão de testes) */
+.brand-emblem{display:block;width:66px;height:52px;object-fit:contain;flex:none;background:transparent;filter:drop-shadow(0 1px 4px rgba(186,131,44,.14));}
+.brand{gap:9px;white-space:nowrap;}
+@media(max-width:740px){.brand-emblem{width:55px;height:46px}.brand{gap:7px}.brand strong{font-size:13px}.brand small{font-size:9px;letter-spacing:.24em}}
+@media(max-width:390px){.brand-emblem{width:48px;height:42px}.brand strong{font-size:12px}.brand small{font-size:8px}}
+
+/* DG Cortes: editor de textos (somente no painel administrativo) */
+.text-editor-heading{margin:25px 0 17px;display:flex;gap:18px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.text-editor-heading h2{font:600 clamp(28px,3vw,36px) Georgia,serif;margin:4px 0}
+.text-editor-heading p{margin:0;max-width:660px}
+.text-editor-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(290px,.8fr);gap:20px;align-items:start;margin-bottom:32px}
+.text-editor-form{gap:14px}
+.copy-group{border:1px solid var(--line);border-radius:13px;overflow:hidden;background:#131519}
+.copy-group summary{padding:15px 18px;cursor:pointer;font-weight:800;list-style-position:inside}
+.copy-group summary span{float:right;font-size:11px;color:var(--muted);font-weight:500}
+.copy-fields{padding:18px;border-top:1px solid var(--line);display:grid;gap:14px}
+.copy-fields .field label{font-size:12px}
+.copy-fields textarea{line-height:1.5;resize:vertical;min-height:72px}
+.copy-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.text-preview{position:sticky;top:95px}
+.text-preview-inner{border:1px solid #51402c;background:radial-gradient(circle at 85% 12%,#332519 0%,#111115 55%);border-radius:16px;margin-top:14px;padding:24px 19px}
+.text-preview-inner small{font-size:10px;color:var(--gold);font-weight:850;letter-spacing:.14em;text-transform:uppercase}
+.text-preview-inner h2{font:700 clamp(27px,2.7vw,44px)/1.1 Georgia,serif;display:grid;gap:5px;margin:18px 0}
+.text-preview-inner h2 em{color:var(--gold);font-style:normal}
+.text-preview-inner p{line-height:1.6;color:#cfd0d4;font-size:13px;overflow-wrap:anywhere}
+.text-preview-inner .btn{margin-top:14px;pointer-events:none}
+.edit-page-banner{max-width:1240px;margin:18px auto 0;padding:11px 15px;border:1px dashed #8d754b;background:#241d13;border-radius:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;color:#e7c993;font-size:12px}
+@media(max-width:860px){.text-editor-layout{grid-template-columns:1fr}.text-preview{position:static}.edit-page-banner{margin:12px 15px 0}}
+
+/* Logo oficial escolhida para o cabeçalho da branch teste.
+   Mistura screen remove VISUALMENTE o preto sobre o cabeçalho escuro,
+   preservando os detalhes originais da arte dourada. */
+.brand-emblem{width:84px;height:62px;mix-blend-mode:screen;filter:drop-shadow(0 1px 2px #8c602633);}
+@media(max-width:740px){.brand-emblem{width:72px;height:54px}}
+@media(max-width:390px){.brand-emblem{width:62px;height:49px}}
+
+/* Campo anti-bot: não interfere em leitores de tela nem nos formulários */
+.spam-trap{position:absolute!important;left:-10000px!important;top:auto!important;width:1px!important;height:1px!important;overflow:hidden!important}

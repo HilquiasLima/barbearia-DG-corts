@@ -4,12 +4,13 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101114">
 <title>DG Cortes | Barbearia & Agendamentos</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="icon" type="image/webp" href="/static/dg-cabecalho.webp">
 </head>
 <body>
 <div class="app-shell" id="root">
-  <header class="topbar"><button class="brand" data-go="home" aria-label="Página inicial"><span class="brand-mark">DG</span><span><strong id="brand-name">DG CORTES</strong><small>BARBEARIA</small></span></button><nav class="desktop-nav" id="desktop-nav"></nav><div id="top-actions"></div><div id="menu-panel" class="menu-panel hidden" role="menu" aria-label="Navegação"></div></header>
+  <header class="topbar"><button class="brand" data-go="home" aria-label="Página inicial"><img class="brand-emblem" src="/static/dg-cabecalho.webp" width="66" height="50" alt="DG Cortes" decoding="async"><span><strong id="brand-name">DG CORTES</strong><small>BARBEARIA</small></span></button><nav class="desktop-nav" id="desktop-nav"></nav><div id="top-actions"></div><div id="menu-panel" class="menu-panel hidden" role="menu" aria-label="Navegação"></div></header>
   <main id="app-content" aria-live="polite"><div class="loading">Preparando a barbearia...</div></main>
-  <footer class="footer">© <span id="year"></span> DG Cortes • Estilo e tradição <small>Horários e valores são configurados pela barbearia.</small></footer>
+  <footer class="footer">© <span id="year"></span> DG Cortes • <span id="footer-slogan">Estilo e tradição</span> <small id="footer-note">Horários e valores são configurados pela barbearia.</small></footer>
 </div>
 <div class="mobile-dock" id="mobile-dock"></div>
 <div class="modal-backdrop hidden" id="modal"><div class="modal-card" role="dialog" aria-modal="true" aria-label="Janela de edição"><button class="close-modal" data-close aria-label="Fechar">✕</button><div id="modal-content"></div></div></div>
