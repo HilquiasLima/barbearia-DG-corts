@@ -1,0 +1,73 @@
+DG CORTES — ATUALIZAÇÃO CUMULATIVA DE SEGURANÇA + ESQUECEU A SENHA (TESTE)
+
+IMPORTANTE
+- Este pacote é SOMENTE para a branch 'teste' do repositório down8609/DG-corts.
+- Não modifica o emblema do cabeçalho, imagem da logo, HTML, textos personalizados, preços, planos ou agendamentos existentes.
+- Não envie dados reais da barbearia para o servidor gratuito.
+- PRIMEIRO configure e teste e-mail via API HTTPS no servidor de testes. NÃO provoque os cinco erros na conta do proprietário até o e-mail chegar: sem entrega de e-mail, a conta ficará bloqueada.
+
+INSTALAÇÃO NO GITHUB
+1. Faça backup do código antes de atualizar e confirme que está em: https://github.com/down8609/DG-corts/tree/teste
+2. Extraia este ZIP.
+3. Substitua/adicione os arquivos no repositório, mantendo os caminhos:
+   app.py
+   backup_lib.py
+   backup_dg.py
+   static/app.js
+   static/style.css
+   (testes_recuperacao.py e testes_seguranca.py são opcionais, para executar no PC)
+4. Envie pelo GitHub: Add file > Upload files > Commit changes.
+5. NÃO envie pastas de banco, fotos de clientes, arquivos .env, chaves, backups, nem crie uma pasta adicional acima de app.py.
+6. Espere a Render do serviço de teste mostrar Deploy succeeded / Live.
+7. Pressione Ctrl+F5 para recarregar o navegador. Na página Login deve aparecer 'Esqueceu a senha?'.
+
+CONFIGURAÇÃO DE E-MAIL — RENDER FREE (SEM SMTP)
+A Render Free bloqueia saídas de rede nas portas SMTP 25, 465 e 587. Use uma API HTTPS como Resend:
+  RESEND_API_KEY  = chave secreta emitida pelo serviço de e-mail
+  RESEND_FROM     = endereço de remetente permitido/verificado pelo provedor
+Exemplo de remetente em domínio verificado: DG Cortes <contato@seudominio.com.br>
+Guarde a chave SOMENTE em Render > dg-corts (TESTE) > Environment.
+O plano de testes da Render pode permanecer Free; não é preciso alterar o banco para testar a API.
+O remetente onboarding@resend.dev pode ser usado pelo Resend em testes limitados a endereços de destinatários autorizados por sua conta; para enviar a clientes, verifique um domínio seu.
+Não exponha RESEND_API_KEY no GitHub nem no chat.
+
+Alternativa (fora de Render Free, geralmente numa instância paga):
+  SMTP_HOST, SMTP_PORT, SMTP_FROM, SMTP_TLS, SMTP_USER, SMTP_PASSWORD
+Se RESEND_API_KEY + RESEND_FROM estiverem configurados, a API HTTPS tem prioridade sobre SMTP.
+
+OUTRAS VARIÁVEIS
+  SECRET_KEY = segredo estável e exclusivo desse ambiente (já existia)
+  COOKIE_SECURE = 1
+  FLASK_DEBUG = 0
+  EMAIL_VERIFICATION_REQUIRED = 0 ou 1 (a recuperação funciona independentemente dessa chave)
+  PUBLIC_BASE_URL = https://dg-corts.onrender.com (exigido para verificação de cadastro por link, não para o código de senha)
+
+COMPORTAMENTO DA RECUPERAÇÃO
+- Após 1 a 4 erros: mostra tentativas restantes.
+- Após 5 erros seguidos na mesma conta/e-mail: senha bloqueada para login até redefinição.
+- A opção 'Esqueceu a senha?' aparece no login, mesmo antes do bloqueio.
+- O código de 6 dígitos é enviado ao e-mail cadastrado; vale 10 minutos, só uma utilização.
+- Reenvio limitado a 3 pedidos/hora por e-mail e 8 pedidos/hora por IP, respeitando pausa de 60 segundos entre mensagens.
+- 5 códigos inválidos cancelam a tentativa atual; a pessoa pode pedir um novo (respeitando limites).
+- Mensagem do pedido de recuperação não revela se existe cadastro com aquele e-mail.
+- Senha redefinida apaga tentativas, remove bloqueio e invalida sessões autenticadas anteriores.
+- Quem não tem acesso ao e-mail cadastrado não poderá recuperar sozinho: é necessário um procedimento de identidade assistido e seguro, a ser desenvolvido antes da produção.
+- Qualquer pessoa que saiba o e-mail de um usuário pode tentar causar bloqueio proposital; os limites de requisição reduzem mas não eliminam esse risco. Antes de colocar em produção, adicionar CAPTCHA, monitoramento e orientação de suporte.
+
+TESTE RECOMENDADO NO SITE DE TESTES
+1. Configure Resend HTTPS e confirme que consegue receber e-mail com uma conta fictícia e um endereço que você controla.
+2. Abra Login > Esqueceu a senha?, peça um código e confira o recebimento.
+3. Confira que código errado falha e código certo troca a senha.
+4. Entre com a senha nova.
+5. Em conta fictícia (NÃO a do proprietário), digite senha errada 5 vezes e confira o bloqueio.
+6. Digite a senha verdadeira: também deve permanecer bloqueada.
+7. Peça código, redefina a senha e entre de novo.
+8. Confira cadastro, agendamento, planos e backup na branch teste.
+
+TESTES DE CÓDIGO EXECUTADOS NO AMBIENTE DE DESENVOLVIMENTO
+python testes_seguranca.py
+python testes_recuperacao.py
+python -m py_compile app.py
+node --check static/app.js
+
+OBSERVAÇÃO: testes unitários simulados NÃO equivalem à verificação real de entregabilidade dos e-mails, login no navegador nem migração em produção. Não publique o merge na main sem teste completo e backup verificado do serviço principal.

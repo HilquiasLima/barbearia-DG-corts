@@ -1,5 +1,5 @@
 'use strict';
-let boot = null, S = null, screen = 'home', authMode = 'login', selectedSlot = '', slots = [], currentBooking = {}, timeEditor = { barber_id:'', day:'' }, toastTimer, confirmedBooking=null;
+let boot = null, S = null, screen = 'home', authMode = 'login', selectedSlot = '', slots = [], currentBooking = {}, timeEditor = { barber_id:'', day:'' }, toastTimer, confirmedBooking=null, recoveryEmail='';
 const $=s=>document.querySelector(s);
 const spamTrap=()=>'<div class="spam-trap" aria-hidden="true"><label>Não preencha este campo <input name="website" tabindex="-1" autocomplete="off"></label></div>';
 const e=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -26,7 +26,7 @@ async function api(path,options={}){
   if(options.method&&options.method!=='GET') headers['X-CSRF-Token']=boot?.csrf||'';
   let response=await fetch(path,{credentials:'same-origin',...options,headers:{...headers,...options.headers}});
   let json=await response.json().catch(()=>({error:'Resposta inválida do servidor.'}));
-  if(!response.ok)throw Error(json.error||'Não foi possível concluir a operação.');
+  if(!response.ok){const problem=new Error(json.error||'Não foi possível concluir a operação.');problem.code=json.code;problem.attemptsRemaining=json.attempts_remaining;throw problem;}
   return json;
 }
 async function refresh(){boot=await api('/api/bootstrap');if(boot.installed)S=await api('/api/state');else S=null;render()}
@@ -84,7 +84,10 @@ function homeHTML(){
  </section>`:''}
  ${show('promotions')&&promos.length?`<div class="home-callout"><div><span class="eyebrow">${txt("promos_eyebrow")}</span><h2>${e(promos[0].title)}</h2><p>${promos[0].discount}% de desconto com o código <b>${e(promos[0].code)}</b>${promos[0].valid_until?' • Até '+dateText(promos[0].valid_until):''}</p></div><button class="btn" data-go="booking">${txt("promos_book_btn")} ↗</button></div>`:''}`;
 }
-function authHTML(){let register=authMode==='register';return `<section class="page auth-layout"><div class="auth-copy"><div class="eyebrow">${txt("auth_eyebrow")}</div><h1 class="page-title">${register?txt('register_title'):txt('login_title')}</h1><p class="lead">${register?txt('register_description'):txt('login_description')}</p><img src="${logo()}" alt="DG Cortes"></div><div class="card auth-panel"><div class="eyebrow">ACESSO SEGURO</div><h2>${register?txt('register_panel_title'):txt('login_panel_title')}</h2>${form(register?'/api/register':'/api/login',`${register?field('Nome e sobrenome','name','','text','required minlength="3"')+field('Telefone / WhatsApp','phone','','tel','required minlength="8"'):''}${field('E-mail','email','','email','required')}${field('Senha','password','','password','required minlength="8"')}${register?spamTrap():''}`,register?'Cadastrar':'Entrar',false)}<p class="muted">${boot?.email_verification_required?'Após criar a conta, confirme o link enviado ao seu e-mail.':''}</p>${boot?.email_verification_required?'<p class="muted"><button class="auth-switch" data-action="resend-verification">Reenviar confirmação de e-mail</button></p>':''}<p class="muted">${register?'Já tem conta?':'Ainda não é cliente?'} <button class="auth-switch" data-action="auth-mode" data-mode="${register?'login':'register'}">${register?'Entrar':'Criar cadastro grátis'}</button></p><div class="divider"></div><button class="btn alt block" data-go="booking">${txt("auth_guest_btn")}</button></div></section>`}
+function authHTML(){
+ if(authMode==='forgot')return `<section class="page auth-layout"><div class="auth-copy"><div class="eyebrow">SEGURANÇA DG CORTES</div><h1 class="page-title">Recuperar sua senha.</h1><p class="lead">Informe o e-mail cadastrado. Se existir uma conta, enviaremos um código de 6 números.</p><img src="${logo()}" alt="DG Cortes"></div><div class="card auth-panel"><h2>Esqueceu a senha?</h2><p class="muted">O código é válido por 10 minutos. Após 5 tentativas incorretas de login, redefinir a senha é obrigatório.</p>${form('/api/password-reset/request',field('E-mail cadastrado','email',recoveryEmail,'email','required autocomplete="email"')+spamTrap(),'Enviar código',false)}<p class="muted"><button class="auth-switch" data-action="reset-step">Já tenho um código</button> · <button class="auth-switch" data-action="back-login">Voltar ao login</button></p></div></section>`;
+ if(authMode==='reset')return `<section class="page auth-layout"><div class="auth-copy"><div class="eyebrow">RECUPERAÇÃO DE ACESSO</div><h1 class="page-title">Defina uma nova senha.</h1><p class="lead">Digite o código enviado ao e-mail e uma nova senha. Ele só poderá ser utilizado uma vez.</p><img src="${logo()}" alt="DG Cortes"></div><div class="card auth-panel"><h2>Validar código</h2>${form('/api/password-reset/confirm',field('E-mail cadastrado','email',recoveryEmail,'email','required autocomplete="email"')+field('Código de 6 dígitos','code','','text','required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"')+field('Nova senha (mínimo 8 caracteres)','new_password','','password','required minlength="8" maxlength="128" autocomplete="new-password"')+field('Repita a nova senha','confirm_password','','password','required minlength="8" maxlength="128" autocomplete="new-password"'),'Salvar nova senha',false)}<p class="muted"><button class="auth-switch" data-action="forgot-step">Solicitar outro código</button> · <button class="auth-switch" data-action="back-login">Voltar ao login</button></p></div></section>`;
+ let register=authMode==='register';return `<section class="page auth-layout"><div class="auth-copy"><div class="eyebrow">${txt("auth_eyebrow")}</div><h1 class="page-title">${register?txt('register_title'):txt('login_title')}</h1><p class="lead">${register?txt('register_description'):txt('login_description')}</p><img src="${logo()}" alt="DG Cortes"></div><div class="card auth-panel"><div class="eyebrow">ACESSO SEGURO</div><h2>${register?txt('register_panel_title'):txt('login_panel_title')}</h2>${form(register?'/api/register':'/api/login',`${register?field('Nome e sobrenome','name','','text','required minlength="3"')+field('Telefone / WhatsApp','phone','','tel','required minlength="8"'):''}${field('E-mail','email','','email','required')}${field('Senha','password','','password','required minlength="8"')}${register?spamTrap():''}`,register?'Cadastrar':'Entrar',false)}<p class="muted">${boot?.email_verification_required?'Após criar a conta, confirme o link enviado ao seu e-mail.':''}</p>${boot?.email_verification_required?'<p class="muted"><button class="auth-switch" data-action="resend-verification">Reenviar confirmação de e-mail</button></p>':''}${!register?'<p class="muted"><button class="auth-switch" data-action="forgot-step">Esqueceu a senha?</button></p>':''}<p class="muted">${register?'Já tem conta?':'Ainda não é cliente?'} <button class="auth-switch" data-action="auth-mode" data-mode="${register?'login':'register'}">${register?'Entrar':'Criar cadastro grátis'}</button></p><div class="divider"></div><button class="btn alt block" data-go="booking">${txt("auth_guest_btn")}</button></div></section>`}
 function bookingHTML(){
  const b=S.barbers.filter(x=>x.active&&x.user_active),svc=S.services.filter(x=>x.active&&S.categories.some(c=>c.id===x.category_id&&c.active));
  if(!b.length||!svc.length)return `<section class="page">${heading('Agendar horário','A barbearia está configurando a agenda.')}<div class="empty">Ainda não há barbeiros ou serviços disponíveis.</div></section>`;
@@ -245,6 +248,9 @@ document.addEventListener('click',async event=>{
  const id=Number(tgt.dataset.id);const action=tgt.dataset.action;
  try{
  if(action==='auth-mode'){authMode=tgt.dataset.mode;render();}
+ if(action==='forgot-step'){authMode='forgot';render();}
+ if(action==='reset-step'){authMode='reset';render();}
+ if(action==='back-login'){authMode='login';render();}
  if(action==='menu'){let panel=$('#menu-panel');panel.classList.toggle('hidden');tgt.setAttribute('aria-expanded',String(!panel.classList.contains('hidden')))}
  if(action==='application')await actionCall(`/api/applications/${id}/status`,{status:tgt.dataset.status},'Solicitação de barbeiro atualizada.',`Deseja ${tgt.dataset.status==='approved'?'aprovar':'recusar'} o cadastro?`);
  if(action==='weekly-hours'){
@@ -368,12 +374,26 @@ document.addEventListener('submit',async event=>{
    const data=Object.fromEntries(new FormData(f).entries());f.querySelectorAll('input[type=checkbox]').forEach(c=>data[c.name]=c.checked);
    const endpoint=f.dataset.api;let r=await api(endpoint,{method:'POST',body:JSON.stringify(data)});
    if(endpoint==='/api/login'&&r.csrf)boot.csrf=r.csrf;
+   if(endpoint==='/api/password-reset/request'){
+     recoveryEmail=String(data.email||'').trim().toLowerCase();
+     authMode='reset';closeModal();render();toast(r.message||'Se existir conta, receberá um código.');return;
+   }
+   if(endpoint==='/api/password-reset/confirm'){
+     recoveryEmail='';authMode='login';closeModal();await refresh();go('auth');toast(r.message||'Senha alterada. Faça login.');return;
+   }
    closeModal();await refresh();if(endpoint==='/api/apply-barber'){go('home');toast('Solicitação enviada! Aguarde aprovação da equipe.');return;}if(endpoint==='/api/register'&&r.verification_required){authMode='login';go('auth');toast(r.message||'Verifique seu e-mail antes de entrar.');return;}
    if(endpoint==='/api/login'||endpoint==='/api/register'||endpoint==='/api/setup')go('dashboard'===S.user?.role?'dashboard':ADMIN()?'dashboard':BARBER()?'appointments':'account');
    if(endpoint==='/api/password'){go('auth');toast('Senha alterada. Entre novamente.')}
    else toast('Salvo com sucesso!');
  }
- }catch(err){toast(err.message,true)}finally{if(btn&&document.contains(btn))btn.disabled=false}
+ }catch(err){
+   if(err.code==='PASSWORD_RESET_REQUIRED'){
+     const entered=f.querySelector('input[name="email"]');
+     recoveryEmail=entered?.value?.trim().toLowerCase()||'';
+     authMode='forgot';go('auth');
+   }
+   toast(err.message,true);
+ }finally{if(btn&&document.contains(btn))btn.disabled=false}
 });
 refresh().then(()=>{
  const match=location.hash.match(/^#confirmacao\/(\d+)\/([^/]+)/);

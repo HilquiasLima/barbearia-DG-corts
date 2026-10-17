@@ -82,6 +82,9 @@ def init_db():
         CREATE INDEX IF NOT EXISTS throttle_lookup ON throttle_events(bucket,at_seconds);
         CREATE INDEX IF NOT EXISTS throttle_cleanup ON throttle_events(at_seconds);
         CREATE TABLE IF NOT EXISTS email_verifications (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, token_digest TEXT NOT NULL, valid_until INTEGER NOT NULL, sent_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS login_failures (email_key TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, reset_required INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS password_reset_codes (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, code_digest TEXT NOT NULL, expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, sent_at INTEGER NOT NULL);
+
 
         ''')
         cols={r[1] for r in db.execute('PRAGMA table_info(appointments)')}
@@ -97,6 +100,8 @@ def init_db():
         if 'avatar_version' not in ucols: db.execute("ALTER TABLE users ADD COLUMN avatar_version TEXT NOT NULL DEFAULT ''")
         # Compatibilidade: clientes existentes não são bloqueados pela migração.
         if 'email_verified' not in ucols: db.execute('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1')
+        if 'password_reset_required' not in ucols: db.execute('ALTER TABLE users ADD COLUMN password_reset_required INTEGER NOT NULL DEFAULT 0')
+        if 'auth_version' not in ucols: db.execute('ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0')
         defaults={'site_name':'DG Cortes','logo_url':'/static/logo.jpg','background':'#0c0e11','accent':'#e3bb7b','reward_every':'0','site_text':json.dumps(SITE_TEXT_DEFAULTS,ensure_ascii=False),'visibility':json.dumps({key:['guest','client','barber','admin','owner'] for key in ('services','team','plans','promotions','booking','rewards')})}
         for key,value in defaults.items():db.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',(key,value))
 
@@ -129,15 +134,10 @@ def notify_appointment(aid,event='booked'):
     details=f"{title} - {setting('site_name') or 'DG Cortes'}\nCliente: {a['customer_name']}\nServiço: {a['service_title']}\nBarbeiro: {a['barber_name']}\nData: {a['day'][8:10]}/{a['day'][5:7]}/{a['day'][:4]}\nHorário: {a['start_time']}"
     admins=rows("SELECT email FROM users WHERE role IN ('owner','admin') AND active=1")
     emails=set(filter(None,[a['customer_email'],a['barber_email']]+[r['email'] for r in admins]))
-    host=os.getenv('SMTP_HOST','');sender=os.getenv('SMTP_FROM','');port=int(os.getenv('SMTP_PORT','587'))
     for address in emails:
-        if not host or not sender:notification_entry(aid,event,'email',address,'not_configured');continue
+        if not email_configured():notification_entry(aid,event,'email',address,'not_configured');continue
         try:
-            msg=EmailMessage();msg['Subject']=title+' | DG Cortes';msg['From']=sender;msg['To']=address;msg.set_content(details)
-            with smtplib.SMTP(host,port,timeout=6) as smtp:
-                if os.getenv('SMTP_TLS','1')=='1':smtp.starttls()
-                if os.getenv('SMTP_USER'):smtp.login(os.getenv('SMTP_USER'),os.getenv('SMTP_PASSWORD',''))
-                smtp.send_message(msg)
+            send_transactional_email(address,title+' | DG Cortes',details)
             notification_entry(aid,event,'email',address,'sent')
         except Exception as ex:notification_entry(aid,event,'email',address,'failed',type(ex).__name__)
     token=os.getenv('WA_ACCESS_TOKEN');phone_id=os.getenv('WA_PHONE_ID');template=os.getenv('WA_TEMPLATE_'+event.upper())
@@ -157,7 +157,9 @@ def notify_appointment(aid,event='booked'):
 def uid(): return session.get('uid')
 def me():
     if not uid(): return None
-    user=one('SELECT id,name,phone,email,role,active,courtesy_credits,created_at,avatar_version FROM users WHERE id=?',(uid(),))
+    user=one('SELECT id,name,phone,email,role,active,courtesy_credits,created_at,avatar_version,auth_version,password_reset_required FROM users WHERE id=?',(uid(),))
+    if user and (user['password_reset_required'] or session.get('auth_version',0) != user['auth_version']):
+        return None
     if user: user['avatar_url']=avatar_url(user)
     return user
 
@@ -262,8 +264,33 @@ def bot_field_present(d):
 def verify_email_required():
     return os.getenv('EMAIL_VERIFICATION_REQUIRED', '0') == '1'
 
-def smtp_configured():
-    return bool(os.getenv('SMTP_HOST') and os.getenv('SMTP_FROM'))
+def email_configured():
+    return bool((os.getenv('RESEND_API_KEY') and (os.getenv('RESEND_FROM') or os.getenv('SMTP_FROM'))) or
+                (os.getenv('SMTP_HOST') and os.getenv('SMTP_FROM')))
+
+
+def send_transactional_email(address, subject, content):
+    # O plano Free da Render bloqueia portas SMTP; Resend envia via HTTPS (443).
+    resend_key=os.getenv('RESEND_API_KEY','')
+    sender=os.getenv('RESEND_FROM') or os.getenv('SMTP_FROM')
+    if resend_key and sender:
+        payload=json.dumps({'from':sender,'to':[address],'subject':subject,'text':content},ensure_ascii=False).encode('utf-8')
+        req=urllib.request.Request('https://api.resend.com/emails',data=payload,method='POST',headers={
+            'Authorization':'Bearer '+resend_key,'Content-Type':'application/json','User-Agent':'DG-Cortes/1.0'})
+        with urllib.request.urlopen(req,timeout=10) as response:
+            response.read()
+        return
+    if not os.getenv('SMTP_HOST') or not os.getenv('SMTP_FROM'):
+        raise RuntimeError('E-mail não configurado.')
+    msg=EmailMessage()
+    msg['Subject']=subject
+    msg['From']=os.environ['SMTP_FROM']
+    msg['To']=address
+    msg.set_content(content)
+    with smtplib.SMTP(os.environ['SMTP_HOST'],int(os.getenv('SMTP_PORT','587')),timeout=10) as smtp:
+        if os.getenv('SMTP_TLS','1')=='1':smtp.starttls()
+        if os.getenv('SMTP_USER'):smtp.login(os.environ['SMTP_USER'],os.getenv('SMTP_PASSWORD',''))
+        smtp.send_message(msg)
 
 def public_base():
     value = os.getenv('PUBLIC_BASE_URL', '').strip().rstrip('/')
@@ -273,7 +300,7 @@ def public_base():
     return value
 
 def send_verification_email(user_id, address):
-    if not smtp_configured():
+    if not email_configured():
         raise RuntimeError('Serviço de e-mail ainda não configurado.')
     url = public_base()
     token = secrets.token_urlsafe(36)
@@ -282,15 +309,8 @@ def send_verification_email(user_id, address):
     db = get_db()
     db.execute('INSERT INTO email_verifications(user_id,token_digest,valid_until,sent_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_digest=excluded.token_digest,valid_until=excluded.valid_until,sent_at=excluded.sent_at',
         (user_id,digest,issued+60*60,issued))
-    message=EmailMessage()
-    message['Subject']='Confirme seu e-mail | DG Cortes'
-    message['From']=os.environ['SMTP_FROM']
-    message['To']=address
-    message.set_content('Confirme seu e-mail em até 1 hora abrindo o endereço: ' + url + '/verificar-email?token=' + token + '\n\nSe não foi você quem se cadastrou, ignore esta mensagem.')
-    with smtplib.SMTP(os.environ['SMTP_HOST'],int(os.getenv('SMTP_PORT','587')),timeout=10) as smtp:
-        if os.getenv('SMTP_TLS','1')=='1':smtp.starttls()
-        if os.getenv('SMTP_USER'):smtp.login(os.environ['SMTP_USER'],os.getenv('SMTP_PASSWORD',''))
-        smtp.send_message(message)
+    send_transactional_email(address,'Confirme seu e-mail | DG Cortes',
+        'Confirme seu e-mail em até 1 hora abrindo o endereço: ' + url + '/verificar-email?token=' + token + '\n\nSe não foi você quem se cadastrou, ignore esta mensagem.')
 
 @app.get('/verificar-email')
 def verify_email():
@@ -316,7 +336,7 @@ def verify_email():
 def resend_verification():
     d=body()
     if bot_field_present(d):return err('Solicitação inválida.')
-    if not verify_email_required() or not smtp_configured():return err('Verificação de e-mail indisponível.',503)
+    if not verify_email_required() or not email_configured():return err('Verificação de e-mail indisponível.',503)
     email=str(d.get('email','')).strip().lower()
     if not valid_email(email):return err('Informe um e-mail válido.')
     user=one('SELECT id,email_verified FROM users WHERE email=?',(email,))
@@ -352,7 +372,9 @@ def throttle_protected_routes():
       '/api/book':(20,1800,'book-ip'),
       '/api/setup':(10,3600,'setup-ip'),
       '/api/apply-barber':(6,3600,'staff-ip'),
-      '/api/resend-verification':(6,3600,'verify-ip')
+      '/api/resend-verification':(6,3600,'verify-ip'),
+      '/api/password-reset/request':(8,3600,'password-reset-request-ip'),
+      '/api/password-reset/confirm':(25,3600,'password-reset-confirm-ip')
     }
     if path not in profiles:return None
     ip=request.remote_addr or 'unknown'
@@ -366,6 +388,12 @@ def throttle_protected_routes():
     if path=='/api/resend-verification':
         email=str(d.get('email','')).strip().lower()
         if email:return guard_bucket('verification-account',email,3,3600)
+    if path=='/api/password-reset/request':
+        email=str(d.get('email','')).strip().lower()
+        if email:return guard_bucket('password-reset-account',email,3,3600)
+    if path=='/api/password-reset/confirm':
+        email=str(d.get('email','')).strip().lower()
+        if email:return guard_bucket('password-reset-verify-account',email,8,900)
     if path=='/api/book':
         # Evita que uma única sessão ocupe toda a agenda.
         sid=session.get('throttle_sid')
@@ -398,7 +426,7 @@ def index(): return render_template('index.html')
 def bootstrap():
     if 'csrf' not in session: session['csrf']=secrets.token_urlsafe(28)
     owner=one("SELECT id FROM users WHERE role='owner'")
-    return jsonify(installed=bool(owner),requires_setup_token=bool(os.getenv('SETUP_TOKEN') or os.getenv('RENDER')),csrf=session['csrf'], email_verification_required=verify_email_required(), user=me())
+    return jsonify(installed=bool(owner),requires_setup_token=bool(os.getenv('SETUP_TOKEN') or os.getenv('RENDER')),csrf=session['csrf'], email_verification_required=verify_email_required(), password_reset_email_available=email_configured(), user=me())
 
 @app.post('/api/setup')
 def setup():
@@ -416,6 +444,7 @@ def setup():
         if one("SELECT id FROM users WHERE role='owner'"):
             db.rollback(); return err('A barbearia já possui administrador principal.',403)
         cur=db.execute('INSERT INTO users(name,phone,email,password,role,created_at) VALUES (?,?,?,?,?,?)', (d['name'].strip(),d['phone'].strip(),d['email'].strip().lower(),generate_password_hash(d['password']),'owner',timestamp()))
+        db.execute('DELETE FROM login_failures WHERE email_key=?',(login_email_key(d['email'].strip().lower()),))
         db.execute('INSERT INTO barbers(user_id,instagram,week_json) VALUES (?,?,?)',(cur.lastrowid,d.get('instagram','').strip(),json.dumps(DEFAULT_WEEK)))
         for c in ('Cabelo','Barba','Combos'):
             db.execute('INSERT INTO categories(name) VALUES (?)',(c,))
@@ -438,12 +467,13 @@ def register():
         if len(str(d['name']).split())<2:return err('Informe nome e sobrenome.')
         if not valid_email(d['email']):return err('Informe um e-mail válido.')
         if len(str(d['password']))<8:return err('A senha deve ter no mínimo 8 caracteres.')
-        if verify_email_required() and (not smtp_configured() or not os.getenv('PUBLIC_BASE_URL')):
+        if verify_email_required() and (not email_configured() or not os.getenv('PUBLIC_BASE_URL')):
             return err('O cadastro está temporariamente indisponível. Contate a barbearia.',503)
         clean_email=d['email'].strip().lower()
         required=verify_email_required()
         cur=get_db().execute('INSERT INTO users(name,phone,email,password,role,created_at,email_verified) VALUES(?,?,?,?,?,?,?)',
             (d['name'].strip(),str(d['phone']).strip(),clean_email,generate_password_hash(d['password']),'client',timestamp(),0 if required else 1))
+        get_db().execute('DELETE FROM login_failures WHERE email_key=?',(login_email_key(clean_email),))
         if required:
             try:send_verification_email(cur.lastrowid,clean_email)
             except Exception:
@@ -455,14 +485,129 @@ def register():
     except sqlite3.IntegrityError:return err('E-mail já cadastrado.')
     except (ValueError,TypeError) as e:return err(str(e))
 
+# O contador vale por e-mail, inclusive para endereços inexistentes: mensagens
+# e quantidades de tentativas não identificam se uma conta existe.
+def login_email_key(email):
+    return hmac.new(SECRET.encode('utf-8'), ('login:' + email).encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+def otp_digest(user_id, code):
+    return hmac.new(SECRET.encode('utf-8'), ('reset:' + str(user_id) + ':' + code).encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+def recovery_invalid():
+    return err('Código inválido, expirado ou esgotado. Solicite um novo.',400)
+
+
 @app.post('/api/login')
 def login():
-    d=body(); u=one('SELECT * FROM users WHERE email=?',(str(d.get('email','')).strip().lower(),))
-    if not u or not u['active'] or not check_password_hash(u['password'],str(d.get('password',''))): return err('E-mail ou senha inválidos.',401)
+    d=body()
+    email=str(d.get('email','')).strip().lower()[:254]
+    password=str(d.get('password',''))[:256]
+    if not valid_email(email):return err('Informe um e-mail válido.')
+    key=login_email_key(email)
+    db=get_db()
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        u=one('SELECT * FROM users WHERE email=?',(email,))
+        attempts=one('SELECT attempts,reset_required FROM login_failures WHERE email_key=?',(key,))
+        if (attempts and attempts['reset_required']) or (u and u['password_reset_required']):
+            db.commit()
+            return jsonify(error='Conta bloqueada após cinco erros. Redefina a senha pelo e-mail cadastrado.', code='PASSWORD_RESET_REQUIRED'),423
+        authenticated=bool(u and u['active'] and check_password_hash(u['password'],password))
+        if not authenticated:
+            count=min(5,(attempts['attempts'] if attempts else 0)+1)
+            must_reset=int(count>=5)
+            db.execute('INSERT INTO login_failures(email_key,attempts,reset_required,updated_at) VALUES(?,?,?,?) '
+                       'ON CONFLICT(email_key) DO UPDATE SET attempts=excluded.attempts,reset_required=excluded.reset_required,updated_at=excluded.updated_at',
+                       (key,count,must_reset,int(time.time())))
+            if must_reset and u:
+                db.execute('UPDATE users SET password_reset_required=1,auth_version=auth_version+1 WHERE id=?',(u['id'],))
+            db.commit()
+            if must_reset:
+                return jsonify(error='Após cinco tentativas incorretas, o acesso exige redefinir a senha pelo e-mail.',code='PASSWORD_RESET_REQUIRED',attempts_remaining=0),423
+            return jsonify(error=f'E-mail ou senha inválidos. Restam {5-count} tentativa(s).',attempts_remaining=5-count),401
+        db.execute('DELETE FROM login_failures WHERE email_key=?',(key,))
+        db.commit()
+    except Exception:
+        if db.in_transaction:db.rollback()
+        raise
     if verify_email_required() and not u['email_verified']:
         return err('Confirme seu e-mail antes de entrar. Use Reenviar confirmação se necessário.',403)
-    session.clear();session['csrf']=secrets.token_urlsafe(28);session['uid']=u['id']
+    session.clear();session['csrf']=secrets.token_urlsafe(28);session['uid']=u['id'];session['auth_version']=u['auth_version']
     return jsonify(ok=True,csrf=session['csrf'])
+
+
+@app.post('/api/password-reset/request')
+def request_password_reset():
+    d=body()
+    if bot_field_present(d):return err('Solicitação inválida.')
+    email=str(d.get('email','')).strip().lower()
+    if not valid_email(email):return err('Informe um e-mail válido.')
+    if not email_configured():return err('Recuperação temporariamente indisponível: e-mail não configurado. Contate a barbearia.',503)
+    # Mensagem idêntica para contas existentes ou inexistentes.
+    safe_message='Se este e-mail estiver cadastrado, enviaremos um código válido por 10 minutos.'
+    user=one('SELECT id,email,active FROM users WHERE email=?',(email,))
+    if user and user['active']:
+        db=get_db()
+        old=one('SELECT sent_at FROM password_reset_codes WHERE user_id=?',(user['id'],))
+        if not old or int(time.time())-old['sent_at'] >= 60:
+            code=f'{secrets.randbelow(1000000):06d}'
+            issued=int(time.time())
+            digest=otp_digest(user['id'],code)
+            db.execute('INSERT INTO password_reset_codes(user_id,code_digest,expires_at,attempts,sent_at) VALUES(?,?,?,?,?) '
+                       'ON CONFLICT(user_id) DO UPDATE SET code_digest=excluded.code_digest,expires_at=excluded.expires_at,attempts=0,sent_at=excluded.sent_at',
+                       (user['id'],digest,issued+600,0,issued))
+            try:
+                send_transactional_email(user['email'],'Código para redefinir a senha | DG Cortes',
+                    'Seu código de recuperação DG Cortes: '+code+'\n\nO código expira em 10 minutos e pode ser usado apenas uma vez.\nSe não solicitou, ignore este e-mail. Nunca compartilhe o código.')
+            except Exception:
+                app.logger.exception('Erro ao enviar código de recuperação')
+                # Não revelamos se o endereço está cadastrado ou se falhou seu envio.
+    return jsonify(ok=True,message=safe_message)
+
+
+@app.post('/api/password-reset/confirm')
+def confirm_password_reset():
+    d=body()
+    email=str(d.get('email','')).strip().lower()
+    code=str(d.get('code','')).strip()
+    password=str(d.get('new_password',''))
+    confirm=str(d.get('confirm_password',''))
+    if not valid_email(email):return err('Informe um e-mail válido.')
+    if not re.fullmatch(r'\d{6}',code):return recovery_invalid()
+    if len(password)<8 or len(password)>128:return err('A nova senha deve conter entre 8 e 128 caracteres.')
+    if password!=confirm:return err('As senhas não são iguais.')
+    db=get_db()
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        user=one('SELECT id FROM users WHERE email=? AND active=1',(email,))
+        record=one('SELECT * FROM password_reset_codes WHERE user_id=?',(user['id'],)) if user else None
+        current=int(time.time())
+        if not record or record['expires_at']<current or record['attempts']>=5:
+            db.commit()
+            return recovery_invalid()
+        actual=otp_digest(user['id'],code)
+        if not hmac.compare_digest(record['code_digest'],actual):
+            tries=record['attempts']+1
+            if tries>=5:
+                db.execute('DELETE FROM password_reset_codes WHERE user_id=?',(user['id'],))
+            else:
+                db.execute('UPDATE password_reset_codes SET attempts=? WHERE user_id=?',(tries,user['id']))
+            db.commit()
+            return recovery_invalid()
+        # A senha antiga e todas as sessões autenticadas deixam de valer.
+        db.execute('UPDATE users SET password=?,password_reset_required=0,email_verified=1,auth_version=auth_version+1 WHERE id=?',
+                   (generate_password_hash(password),user['id']))
+        db.execute('DELETE FROM password_reset_codes WHERE user_id=?',(user['id'],))
+        db.execute('DELETE FROM login_failures WHERE email_key=?',(login_email_key(email),))
+        db.commit()
+    except Exception:
+        if db.in_transaction:db.rollback()
+        raise
+    session.clear()
+    return jsonify(ok=True,message='Senha redefinida. Entre novamente com a nova senha.')
+
 
 @app.post('/api/logout')
 def logout(): session.clear();return jsonify(ok=True)
@@ -699,6 +844,7 @@ def add_staff():
         count=one("SELECT COUNT(*) AS n FROM barbers b JOIN users u ON u.id=b.user_id WHERE u.role<>'owner' AND b.active=1")['n']
         if count>=5:db.rollback();return err('Limite de cinco barbeiros além do proprietário atingido.')
         cur=db.execute('INSERT INTO users(name,phone,email,password,role,created_at) VALUES(?,?,?,?,?,?)',(d['name'].strip(),d['phone'].strip(),d['email'].strip().lower(),generate_password_hash(d['password']),'barber',timestamp()))
+        db.execute('DELETE FROM login_failures WHERE email_key=?',(login_email_key(d['email'].strip().lower()),))
         db.execute('INSERT INTO barbers(user_id,instagram,week_json) VALUES(?,?,?)',(cur.lastrowid,str(d.get('instagram','')).strip(),json.dumps(DEFAULT_WEEK)))
         log('barbeiro_adicionado',str(cur.lastrowid));db.commit();return jsonify(ok=True)
     except sqlite3.IntegrityError: db.rollback();return err('Este e-mail já está em uso.')
@@ -1039,6 +1185,7 @@ def approve_barber(aid):
             count=one("SELECT COUNT(*) AS n FROM barbers b JOIN users u ON u.id=b.user_id WHERE u.role<>'owner' AND b.active=1")['n']
             if count>=5:db.rollback();return err('Limite de cinco barbeiros atingido.')
             cur=db.execute('INSERT INTO users(name,phone,email,password,role,created_at) VALUES (?,?,?,?,?,?)',(appl['name'],appl['phone'],appl['email'],appl['password'],'barber',timestamp()))
+            db.execute('DELETE FROM login_failures WHERE email_key=?',(login_email_key(appl['email'].strip().lower()),))
             db.execute('INSERT INTO barbers(user_id,instagram,week_json) VALUES(?,?,?)',(cur.lastrowid,appl['instagram'],json.dumps(DEFAULT_WEEK)))
         db.execute('UPDATE barber_applications SET status=? WHERE id=?',(choice,aid))
         log('solicitacao_barbeiro_'+choice,str(aid));db.commit();return jsonify(ok=True)
@@ -1050,7 +1197,11 @@ def change_password():
     d=body();u=one('SELECT password FROM users WHERE id=?',(uid(),))
     if not check_password_hash(u['password'],str(d.get('old',''))): return err('Senha atual incorreta.')
     if len(str(d.get('new','')))<8:return err('Nova senha deve ter pelo menos 8 caracteres.')
-    get_db().execute('UPDATE users SET password=? WHERE id=?',(generate_password_hash(d['new']),uid()))
+    email=me()['email']
+    db=get_db()
+    db.execute('UPDATE users SET password=?,auth_version=auth_version+1 WHERE id=?',(generate_password_hash(d['new']),uid()))
+    db.execute('DELETE FROM login_failures WHERE email_key=?',(login_email_key(email),))
+    db.execute('DELETE FROM password_reset_codes WHERE user_id=?',(uid(),))
     session.clear();return jsonify(ok=True)
 
 @app.errorhandler(500)
