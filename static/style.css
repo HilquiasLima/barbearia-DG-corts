@@ -44,3 +44,9 @@
 .photo-admin-preview{display:flex;justify-content:center;padding:12px 0 21px}
 .photo-upload-form input[type=file],#photo-form input[type=file]{max-width:100%;cursor:pointer}
 @media(max-width:740px){.avatar.avatar-preview{width:105px;height:105px;flex-basis:105px}.photo-upload-preview{align-items:start}}
+
+/* DG Cortes - logomarca do cabeçalho (versão de testes) */
+.brand-emblem{display:block;width:66px;height:52px;object-fit:contain;flex:none;background:transparent;filter:drop-shadow(0 1px 4px rgba(186,131,44,.14));}
+.brand{gap:9px;white-space:nowrap;}
+@media(max-width:740px){.brand-emblem{width:55px;height:46px}.brand{gap:7px}.brand strong{font-size:13px}.brand small{font-size:9px;letter-spacing:.24em}}
+@media(max-width:390px){.brand-emblem{width:48px;height:42px}.brand strong{font-size:12px}.brand small{font-size:8px}}
