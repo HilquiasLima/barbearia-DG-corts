@@ -75,6 +75,10 @@ def init_db():
         if 'customer_email' not in cols: db.execute("ALTER TABLE appointments ADD COLUMN customer_email TEXT NOT NULL DEFAULT ''")
         if 'confirmation_token' not in cols: db.execute("ALTER TABLE appointments ADD COLUMN confirmation_token TEXT")
         if 'reward_granted' not in cols: db.execute("ALTER TABLE appointments ADD COLUMN reward_granted INTEGER NOT NULL DEFAULT 0")
+        subcols={r[1] for r in db.execute('PRAGMA table_info(subscriptions)')}
+        if 'origin' not in subcols: db.execute("ALTER TABLE subscriptions ADD COLUMN origin TEXT NOT NULL DEFAULT 'requested'")
+        if 'granted_by' not in subcols: db.execute('ALTER TABLE subscriptions ADD COLUMN granted_by INTEGER REFERENCES users(id)')
+        if 'grant_note' not in subcols: db.execute("ALTER TABLE subscriptions ADD COLUMN grant_note TEXT NOT NULL DEFAULT ''")
         ucols={r[1] for r in db.execute('PRAGMA table_info(users)')}
         if 'blocked_reason' not in ucols: db.execute("ALTER TABLE users ADD COLUMN blocked_reason TEXT NOT NULL DEFAULT ''")
         if 'avatar_version' not in ucols: db.execute("ALTER TABLE users ADD COLUMN avatar_version TEXT NOT NULL DEFAULT ''")
@@ -451,6 +455,38 @@ def request_plan():
     if one("SELECT id FROM subscriptions WHERE user_id=? AND status IN ('pending','active') AND (status='pending' OR ends_at>=?)",(uid(),str(now().date()))):return err('Você já possui um plano ativo ou em análise.')
     get_db().execute('INSERT INTO subscriptions(user_id,plan_id,created_at) VALUES(?,?,?)',(uid(),pid,timestamp()))
     return jsonify(ok=True)
+
+@app.post('/api/users/<int:target>/grant-plan')
+@auth(('owner','admin'))
+def grant_plan_to_client(target):
+    """Ativa um plano existente por cortesia, com registro do administrador."""
+    d=body()
+    try: plan_id=int(d.get('plan_id'))
+    except (ValueError,TypeError): return err('Selecione um plano válido.')
+    note=str(d.get('note') or '').strip()
+    if len(note)>250:return err('A observação deve ter no máximo 250 caracteres.')
+    db=get_db()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        client=one('SELECT id,name,role,active FROM users WHERE id=?',(target,))
+        if not client or client['role']!='client' or not client['active']:
+            db.rollback();return err('Selecione um perfil de cliente ativo.')
+        plan=one('SELECT id,title,days,cuts FROM plans WHERE id=?',(plan_id,))
+        if not plan or plan['days']<1 or plan['cuts']<1:
+            db.rollback();return err('Plano não encontrado ou inválido.')
+        busy=one("SELECT id FROM subscriptions WHERE user_id=? AND (status='pending' OR (status='active' AND ends_at>=?))",(target,str(now().date())))
+        if busy:
+            db.rollback();return err('Este cliente já tem um plano ativo ou uma solicitação pendente. Resolva-a primeiro.')
+        start=now().date()
+        end=start+timedelta(days=plan['days']-1)
+        cur=db.execute("INSERT INTO subscriptions(user_id,plan_id,status,starts_at,ends_at,cuts_left,created_at,origin,granted_by,grant_note) VALUES(?,?,'active',?,?,?,?,?,?,?)",
+            (target,plan_id,str(start),str(end),plan['cuts'],timestamp(),'courtesy',uid(),note))
+        log('plano_cortesia_atribuido',f"cliente={target};plano={plan_id};assinatura={cur.lastrowid}")
+        db.commit()
+        return jsonify(ok=True,subscription_id=cur.lastrowid)
+    except sqlite3.Error:
+        if db.in_transaction:db.rollback()
+        return err('Não foi possível conceder o plano. Tente novamente.',500)
 
 @app.post('/api/subscriptions/<int:sid>/status')
 @auth(('owner','admin'))

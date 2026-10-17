@@ -73,3 +73,10 @@
 .text-preview-inner .btn{margin-top:14px;pointer-events:none}
 .edit-page-banner{max-width:1240px;margin:18px auto 0;padding:11px 15px;border:1px dashed #8d754b;background:#241d13;border-radius:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;color:#e7c993;font-size:12px}
 @media(max-width:860px){.text-editor-layout{grid-template-columns:1fr}.text-preview{position:static}.edit-page-banner{margin:12px 15px 0}}
+
+/* Logo oficial escolhida para o cabeçalho da branch teste.
+   Mistura screen remove VISUALMENTE o preto sobre o cabeçalho escuro,
+   preservando os detalhes originais da arte dourada. */
+.brand-emblem{width:84px;height:62px;mix-blend-mode:screen;filter:drop-shadow(0 1px 2px #8c602633);}
+@media(max-width:740px){.brand-emblem{width:72px;height:54px}}
+@media(max-width:390px){.brand-emblem{width:62px;height:49px}}
